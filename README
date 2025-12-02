@@ -1,0 +1,76 @@
+# 🎨 Mythic Art Explorer
+
+An interactive Streamlit-based digital museum that connects Greek mythology with real artworks from The Metropolitan Museum of Art (MET).  
+The app integrates MET’s Open Access API, big-data visualization, and AI-powered curatorial interpretation.
+
+---
+
+## 🌟 Overview
+
+**Mythic Art Explorer** allows users to explore Greek gods, heroes, mythological creatures, and artistic representations through:
+
+- Real museum dataset  
+- Big-data visualization (Plotly)  
+- Interactive network genealogy (Pyvis)  
+- AI-generated curator analysis  
+- Psychological myth archetype tests  
+
+The project serves as a modern digital-humanities tool for education, research, and interactive online exhibitions.
+
+---
+
+## 🏛 Key Features
+
+### **1. Greek Figures & Artworks**
+- Browse major mythological figures (Zeus, Athena, Apollo, Medusa, Achilles, etc.).
+- Retrieve artworks from **The MET Open Access API**.
+- Pinterest-style waterfall gallery.
+- Modal pop-up for each artwork with:
+  - High-resolution image  
+  - Artist / date / culture / medium  
+  - AI curator analysis (optional)  
+
+---
+
+### **2. Works & Analysis (Curatorial Deep Dive)**
+Each artwork includes:
+- Fullscreen viewer  
+- Structured metadata  
+- AI-generated iconography, symbolism, and historical context  
+
+---
+
+### **3. Mythic Lineages (Genealogy Visualization)**
+Interactive **Pyvis network graph** showing relationships among:
+- Primordials  
+- Titans  
+- Olympians  
+- Heroes  
+- Creatures  
+
+Nodes are draggable, zoomable, and color-coded by category.
+
+---
+
+### **4. Interactive Tests**
+Two psychology-based mythological personality assessments:
+- Multi-question tests  
+- Assign archetypes (Jungian + Greek myth hybrid)  
+- Output includes interpretation and related artistic themes  
+
+---
+
+### **5. Art Data Analysis (Big-Data Mode)**
+Visual analysis built from MET dataset:
+- Timeline (artwork dates)
+- Medium & material distribution
+- Culture / region charts
+- Classification breakdown
+- Tag / theme frequencies
+- Acquisition year patterns
+
+Powered by **Plotly**.
+
+---
+
+## 📁 File Structure
