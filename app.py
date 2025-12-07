@@ -499,39 +499,44 @@ elif page == "Mythic Lineages":
         st.markdown(relation_explanation_text(a,b,rel))
 
     st.markdown("---")
-    st.write("Interactive network (supplementary). Install `pyvis` and `networkx` to enable it.")
-    try:
-        import networkx as nx
-        from pyvis.network import Network
-    except Exception:
-        st.info("pyvis/networkx not installed — interactive network not available.")
-    else:
-        G = nx.Graph()
-        for a,b,rel in RELS:
-            G.add_node(a); G.add_node(b); G.add_edge(a,b,relation=rel)
-        # Create PyVis network
-nt = Network(
-    height="600px",
-    width="100%",
-    bgcolor="#ffffff",
-    font_color="black",
-    notebook=False
-)
+st.write("Interactive network (supplementary). Install `pyvis` and `networkx` to enable it.")
 
-# Build nodes
-for n in G.nodes():
-    nt.add_node(n, label=n, title=n)
-
-# Build edges
-for u, v, data in G.edges(data=True):
-    nt.add_edge(u, v, title=data.get("relation", ""))
-
-# SAFE rendering method (avoids .render / .show errors in Streamlit Cloud)
 try:
-    html_str = nt.generate_html()   # This method always works; no tmp file needed
-    st.components.v1.html(html_str, height=650, scrolling=True)
-except Exception as e:
-    st.error(f"Failed to render interactive network: {e}")
+    import networkx as nx
+    from pyvis.network import Network
+except Exception:
+    st.info("pyvis/networkx not installed — interactive network not available.")
+else:
+    # Build the graph
+    G = nx.Graph()
+    for a, b, rel in RELS:
+        G.add_node(a)
+        G.add_node(b)
+        G.add_edge(a, b, relation=rel)
+
+    # Create PyVis network (must be INSIDE the else)
+    nt = Network(
+        height="600px",
+        width="100%",
+        bgcolor="#ffffff",
+        font_color="black",
+        notebook=False
+    )
+
+    # Build nodes
+    for n in G.nodes():
+        nt.add_node(n, label=n, title=n)
+
+    # Build edges
+    for u, v, data in G.edges(data=True):
+        nt.add_edge(u, v, title=data.get("relation", ""))
+
+    # SAFE rendering method
+    try:
+        html_str = nt.generate_html()
+        st.components.v1.html(html_str, height=650, scrolling=True)
+    except Exception as e:
+        st.error(f"Failed to render interactive network: {e}")
 
 # ---------- Myth Stories (rewritten) ----------
 elif page == "Myth Stories":
