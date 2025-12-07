@@ -905,17 +905,15 @@ MYTH_DB = {
 
 if st.button("Generate (AI)"):
     with st.spinner("AI is generating content, please wait..."):
-        # Get the myth seed
         seed = MYTH_DB.get(character, "")
         if not seed:
             st.warning("No myth seed found for this character.")
         elif not meta:
             st.warning("No artwork metadata available.")
         else:
-            # Escape {} in seed to avoid f-string errors
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # AI prompt
+            # Prompt with proper triple-quote and correct indentation
             prompt = f"""You are an art historian and museum narrator. Using the myth seed and artwork metadata, produce two clearly separated sections:
 
 ---
@@ -931,7 +929,6 @@ Use language that is accessible to students and exhibition visitors.
 """
 
             try:
-                # Call OpenAI ChatCompletion API
                 response = openai.ChatCompletion.create(
                     model="gpt-4o-mini",
                     messages=[
@@ -943,7 +940,6 @@ Use language that is accessible to students and exhibition visitors.
             except Exception as e:
                 result = f"[Generation failed: {e}]"
 
-            # Display Myth Narrative and Art Commentary separately
             if "---" in result:
                 parts = result.split("---")
                 st.markdown("### ✨ Myth Narrative")
@@ -954,12 +950,9 @@ Use language that is accessible to students and exhibition visitors.
                 st.markdown("### 📖 Generated Text")
                 st.write(result)
 
-            # Download button
-            file_name = f"{character}_story.txt"
             st.download_button(
                 label="📥 Download Story Text",
                 data=result,
-                file_name=file_name,
+                file_name=f"{character}_story.txt",
                 mime="text/plain"
             )
-
