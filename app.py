@@ -459,8 +459,9 @@ elif page == "Interactive Tests":
 # ---------- Mythic Lineages (explanations first + network) ----------
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Museum-style Explanations")
-    st.write("Explanations appear first for quick reading; the interactive network is provided below as a supplementary view.")
+    st.write("Explanations appear first for quick reading; the interactive network is provided below as supplementary visualization.")
 
+    # --- Relationship data ---
     RELS = [
         ("Chaos","Gaia","parent"),
         ("Gaia","Uranus","parent"),
@@ -484,59 +485,63 @@ elif page == "Mythic Lineages":
         ("Cyclops","Poseidon","associate"),
     ]
 
-    def relation_explanation_text(a,b,rel):
+    # --- Museum-label style explanation ---
+    def relation_explanation_text(a, b, rel):
         if rel == "parent":
-            return f"🔹 {a} → {b}\n\n{a} is a progenitor figure whose actions and attributes inform the domains, responsibilities, or mythic roles later embodied by {b}."
+            return f"🔹 {a} → {b}\n\n{a} is a progenitor figure whose attributes shape the mythic identity of {b}, establishing lineage and divine authority."
         if rel == "conflict":
-            return f"🔹 {a} → {b}\n\nThe connection is adversarial: narratives between {a} and {b} often stage trials, moral tests, or dramatic confrontations."
+            return f"🔹 {a} → {b}\n\nThe relationship between {a} and {b} is defined by conflict, highlighting trials, moral challenges, or heroic confrontation."
         if rel == "influence":
-            return f"🔹 {a} → {b}\n\nA narrative or symbolic influence: {a} shapes the legend, iconography, or cultural meaning surrounding {b}."
+            return f"🔹 {a} → {b}\n\n{a} influences {b} in narrative symbolism or heroic legacy, shaping how later traditions understand {b}."
         if rel == "associate":
-            return f"🔹 {a} → {b}\n\nAn associative relation: the figures appear in related spheres of mythic practice or share symbolic attributes."
+            return f"🔹 {a} → {b}\n\nThe figures share an associative link through domain, symbolism, or recurring appearances in connected myths."
         return f"🔹 {a} → {b}\n\nRelation: {rel}."
 
-    for a,b,rel in RELS:
-        st.markdown(relation_explanation_text(a,b,rel))
+    # --- Display explanations ---
+    for a, b, rel in RELS:
+        st.markdown(relation_explanation_text(a, b, rel))
 
     st.markdown("---")
-st.write("Interactive network (supplementary). Install `pyvis` and `networkx` to enable it.")
+    st.write("### Interactive Network (Supplementary)")
+    st.write("If `pyvis` and `networkx` are installed, the force-directed graph will appear below.")
 
-try:
-    import networkx as nx
-    from pyvis.network import Network
-except Exception:
-    st.info("pyvis/networkx not installed — interactive network not available.")
-else:
-    # Build the graph
-    G = nx.Graph()
-    for a, b, rel in RELS:
-        G.add_node(a)
-        G.add_node(b)
-        G.add_edge(a, b, relation=rel)
-
-    # Create PyVis network (must be INSIDE the else)
-    nt = Network(
-        height="600px",
-        width="100%",
-        bgcolor="#ffffff",
-        font_color="black",
-        notebook=False
-    )
-
-    # Build nodes
-    for n in G.nodes():
-        nt.add_node(n, label=n, title=n)
-
-    # Build edges
-    for u, v, data in G.edges(data=True):
-        nt.add_edge(u, v, title=data.get("relation", ""))
-
-    # SAFE rendering method
+    # --- Try to load network libraries ---
     try:
-        html_str = nt.generate_html()
-        st.components.v1.html(html_str, height=650, scrolling=True)
-    except Exception as e:
-        st.error(f"Failed to render interactive network: {e}")
+        import networkx as nx
+        from pyvis.network import Network
+    except Exception:
+        st.info("pyvis/networkx are not installed — interactive network unavailable.")
+    else:
+        # --- Build graph ---
+        G = nx.Graph()
+        for a, b, rel in RELS:
+            G.add_node(a)
+            G.add_node(b)
+            G.add_edge(a, b, relation=rel)
+
+        # --- Init PyVis ---
+        nt = Network(
+            height="600px",
+            width="100%",
+            bgcolor="#ffffff",
+            font_color="black",
+            notebook=False
+        )
+
+        # Nodes
+        for n in G.nodes():
+            nt.add_node(n, label=n, title=n)
+
+        # Edges
+        for u, v, data in G.edges(data=True):
+            nt.add_edge(u, v, title=data.get("relation", ""))
+
+        # --- Safe rendering ---
+        try:
+            html_str = nt.generate_html()
+            st.components.v1.html(html_str, height=650, scrolling=True)
+        except Exception as e:
+            st.error(f"Failed to render interactive network: {e}")
 
 # ---------- Myth Stories (rewritten) ----------
 elif page == "Myth Stories":
