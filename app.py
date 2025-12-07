@@ -509,19 +509,29 @@ elif page == "Mythic Lineages":
         G = nx.Graph()
         for a,b,rel in RELS:
             G.add_node(a); G.add_node(b); G.add_edge(a,b,relation=rel)
-        nt = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
-        for n in G.nodes():
-            nt.add_node(n, label=n, title=n)
-        for u,v,data in G.edges(data=True):
-            nt.add_edge(u, v, title=data.get("relation",""))
-        tmpfile = "/tmp/myth_network.html"
-        try:
-            nt.show(tmpfile)
-            with open(tmpfile, "r", encoding="utf-8") as f:
-                html = f.read()
-            st.components.v1.html(html, height=650, scrolling=True)
-        except Exception as e:
-            st.error(f"Failed to render interactive network: {e}")
+        # Create PyVis network
+nt = Network(
+    height="600px",
+    width="100%",
+    bgcolor="#ffffff",
+    font_color="black",
+    notebook=False
+)
+
+# Build nodes
+for n in G.nodes():
+    nt.add_node(n, label=n, title=n)
+
+# Build edges
+for u, v, data in G.edges(data=True):
+    nt.add_edge(u, v, title=data.get("relation", ""))
+
+# SAFE rendering method (avoids .render / .show errors in Streamlit Cloud)
+try:
+    html_str = nt.generate_html()   # This method always works; no tmp file needed
+    st.components.v1.html(html_str, height=650, scrolling=True)
+except Exception as e:
+    st.error(f"Failed to render interactive network: {e}")
 
 # ---------- Myth Stories (rewritten) ----------
 elif page == "Myth Stories":
