@@ -695,7 +695,7 @@ elif page == "Mythic Lineages":
 # --------------------
 # Style Transfer (AI)
 # --------------------
-elif page == "Style Transfer":
+if page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
 st.write("""
