@@ -682,10 +682,15 @@ elif page == "Myth Stories":
                       prompt = f"""
 You are an art historian and myth storyteller. Create two sections for exhibition-style text:
 
-Section 1 — Myth Narrative (museum audio-guide tone): tell the myth of the character {character} in a concise, emotive narrative.
+Section 1 — Myth Narrative (museum audio-guide tone):
+Tell the myth of the character {character} in a concise, emotive narrative.
 
-Section 2 — Art Commentary: analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. Discuss composition, light, pose, symbols, and the relationship between image and myth. Keep language clear for students and exhibition visitors.
-\"\"\"
+Section 2 — Art Commentary:
+Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}'.
+Discuss composition, light, pose, symbols, and the relationship between image and myth. 
+Keep language clear for students and exhibition visitors.
+"""
+
                         try:
                             resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
                             text_out = resp.output_text
