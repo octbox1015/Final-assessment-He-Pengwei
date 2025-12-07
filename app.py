@@ -928,30 +928,45 @@ Use language that is accessible to students and exhibition visitors.
                 mime="text/plain"
             )
 
-                else:
-                    prompt = f"""
-You are an art historian and museum narrator. Produce a concise, emotive museum audio-guide style narrative about {character} based on this seed: {seed}
+else:
+    # Escape {} in seed to avoid f-string errors
+    safe_seed = seed.replace("{", "{{").replace("}", "}}")
+
+    # AI prompt with separated sections
+    prompt = f"""You are an art historian and museum narrator. Using the myth seed, produce two clearly separated sections:
+
+---
+Myth Narrative:
+Write a concise, emotive museum audio-guide style narrative about {character}.
+Based on this seed: {safe_seed}
+
+---
+Art Commentary:
+Provide an accessible analysis of the character's story or associated artwork.
+Discuss symbolism, themes, and context in a way suitable for exhibition visitors.
 """
 
-                try:
-                    resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
-                    text_out = resp.output_text
-                except Exception as e:
-                    text_out = f"[Generation failed: {e}]"
+    try:
+        # Call OpenAI Responses API
+        resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+        text_out = resp.output_text
+    except Exception as e:
+        text_out = f"[Generation failed: {e}]"
 
-                st.markdown("### 📖 Generated Text")
-                st.write(text_out)
-                st.download_button("Download story (txt)", data=text_out, file_name=f"{character}_story.txt")
+    # Display Myth Narrative and Art Commentary separately
+    if "---" in text_out:
+        parts = text_out.split("---")
+        st.markdown("### ✨ Myth Narrative")
+        st.write(parts[1].strip() if len(parts) > 1 else text_out)
+        st.markdown("### ✨ Art Commentary")
+        st.write(parts[2].strip() if len(parts) > 2 else "")
+    else:
+        st.markdown("### 📖 Generated Text")
+        st.write(text_out)
 
-# --------------------
-# About / Footer
-# --------------------
-elif page == "About":
-    st.header("About")
-    st.write("Created by Pengwei He for the Final Assessment — Mythic Art Explorer.")
-    st.write("Features: MET API browsing, data visualization, interactive network, AI story generation, and style-transfer image synthesis.")
-
-# --------------------
-# End of app
-# --------------------
-
+    # Download button
+    st.download_button(
+        "Download story (txt)",
+        data=text_out,
+        file_name=f"{character}_story.txt"
+    )
