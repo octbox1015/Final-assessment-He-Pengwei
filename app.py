@@ -673,7 +673,6 @@ elif page == "Mythic Lineages":
         G.add_edge(a, b, relation=rel)
 
 nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
-
 try:
     nt.force_atlas_2based()
 except Exception:
@@ -688,7 +687,6 @@ for u, v, data in G.edges(data=True):
     nt.add_edge(u, v, title=rel, value=1)
 
 tmpfile = "/tmp/myth_network.html"
-
 try:
     nt.show(tmpfile)
     with open(tmpfile, "r", encoding="utf-8") as f:
