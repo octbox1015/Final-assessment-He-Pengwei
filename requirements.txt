@@ -1,7 +1,7 @@
-streamlit
-plotly
-networkx
-pyvis
-requests
-pillow
 openai>=1.0.0
+pyvis
+networkx
+streamlit
+requests
+plotly
+pillow
