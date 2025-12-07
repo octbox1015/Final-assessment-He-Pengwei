@@ -614,9 +614,6 @@ elif page == "Interactive Tests":
         else:
             st.write("Warrior — challenge, mastery. Visual: battle scenes.")
 
-# --------------------
-# Mythic Lineages (Interactive PyVis)
-# --------------------
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Interactive Force-directed Network")
     st.write(
@@ -700,7 +697,8 @@ elif page == "Mythic Lineages":
             components_html = f.read()
         st.components.v1.html(components_html, height=720)
     except Exception as e:
-        st.error("Failed to render interactive network: {}".format(e))
+        # 完全安全，不用 f-string
+        st.error("Failed to render interactive network: {0}".format(e))
 
         # 回退显示关系列表
         parents = {}
@@ -709,7 +707,7 @@ elif page == "Mythic Lineages":
 
         for p, children in parents.items():
             safe_p = p.replace("{", "{{").replace("}", "}}")
-            st.markdown("**{}** → {}".format(safe_p, ", ".join(children)))
+            st.markdown("**{0}** → {1}".format(safe_p, ", ".join(children)))
 
 # --------------------
 # Style Transfer (AI)
