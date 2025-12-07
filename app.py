@@ -789,12 +789,12 @@ elif page == "AI Interpretation":
 import streamlit as st
 import openai
 
-# Set your OpenAI API key
+# 设置 OpenAI API key
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 st.header("📘 Myth Stories — Character Narratives & Artwork Commentary")
 
-# Local myth seed database
+# Myth seed 数据库
 MYTH_DB = {
     "Orpheus":"Orpheus, son of Apollo, was a legendary musician whose songs could move all living things. He famously journeyed to the Underworld to recover his wife Eurydice.",
     "Narcissus":"Narcissus was a youth of extraordinary beauty who fell in love with his own reflection and was transformed into the flower that bears his name.",
@@ -803,10 +803,11 @@ MYTH_DB = {
     "Zeus":"Zeus is the king of gods, ruler of sky and thunder, known for his many myths and complex relationships with other gods."
 }
 
+# 选择角色
 character = st.selectbox("Choose a mythic figure", sorted(MYTH_DB.keys()))
 st.info(MYTH_DB.get(character, "No seed available; AI will craft the story."))
 
-# Example artwork metadata
+# 示例 artwork 元数据
 meta = {
     "title": "Sample Artwork",
     "artistDisplayName": "Artist Name",
@@ -824,10 +825,10 @@ if st.button("Generate (AI)"):
         elif not meta:
             st.warning("No artwork metadata available.")
         else:
-            # Escape {} in seed
+            # 转义 seed 中的 {}
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # AI prompt with triple quotes and correct indentation
+            # 正确闭合的 triple-quoted f-string
             prompt = f"""You are an art historian and museum narrator. Using the myth seed and artwork metadata, produce two clearly separated sections:
 
 ---
@@ -854,7 +855,7 @@ Use language that is accessible to students and exhibition visitors.
             except Exception as e:
                 result = f"[Generation failed: {e}]"
 
-            # Split and display Myth Narrative and Art Commentary
+            # 分段显示
             if "---" in result:
                 parts = result.split("---")
                 st.markdown("### ✨ Myth Narrative")
@@ -865,7 +866,7 @@ Use language that is accessible to students and exhibition visitors.
                 st.markdown("### 📖 Generated Text")
                 st.write(result)
 
-            # Download button
+            # 下载按钮
             st.download_button(
                 label="📥 Download Story Text",
                 data=result,
