@@ -611,7 +611,6 @@ elif page == "Mythic Lineages":
     try:
         from pyvis.network import Network
         import networkx as nx
-        import streamlit.components.v1 as components
     except Exception:
         st.error(
             "The 'pyvis' or 'networkx' package is not installed. "
@@ -619,57 +618,51 @@ elif page == "Mythic Lineages":
         )
         st.stop()
 
-import networkx as nx
-from pyvis.network import Network
-import streamlit as st
+    # --- 构建图 ---
+    G = nx.Graph()
+    for a, b, rel in RELS:
+        G.add_node(str(a))
+        G.add_node(str(b))
+        G.add_edge(str(a), str(b), relation=rel)
 
-# --- 构建图 ---
-G = nx.Graph()
-for a, b, rel in RELS:
-    G.add_node(str(a))
-    G.add_node(str(b))
-    G.add_edge(str(a), str(b), relation=rel)
+    # --- 创建可视化网络 ---
+    nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
 
-# --- 创建可视化网络 ---
-nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
+    try:
+        nt.force_atlas_2based()
+    except Exception:
+        pass
 
-try:
-    nt.force_atlas_2based()
-except Exception:
-    pass
+    # --- 添加节点 ---
+    for n in G.nodes():
+        title = BIO.get(n, "No bio available.")
+        nt.add_node(n, label=n, title=title, value=2)
 
-# --- 添加节点 ---
-for n in G.nodes():
-    title = BIO.get(n, "No bio available.")
-    nt.add_node(n, label=n, title=title, value=2)
+    # --- 添加边 ---
+    for u, v, data in G.edges(data=True):
+        rel = data.get("relation", "")
+        nt.add_edge(u, v, title=rel, value=1)
 
-# --- 添加边 ---
-for u, v, data in G.edges(data=True):
-    rel = data.get("relation", "")
-    nt.add_edge(u, v, title=rel, value=1)
+    # --- 输出 HTML ---
+    tmpfile = "/tmp/myth_network.html"
+    try:
+        nt.show(tmpfile)
+        with open(tmpfile, "r", encoding="utf-8") as f:
+            components_html = f.read()
+        st.components.v1.html(components_html, height=720)
+    except Exception as e:
+        st.error("Failed to render interactive network: {}".format(e))
 
-# --- 输出 HTML ---
-tmpfile = "/tmp/myth_network.html"
-try:
-    nt.show(tmpfile)
-    with open(tmpfile, "r", encoding="utf-8") as f:
-        components_html = f.read()
-    st.components.v1.html(components_html, height=720)
-except Exception as e:
-    st.error("Failed to render interactive network: {}".format(e))
+    # --- 输出父子关系 ---
+    parents = {}
+    for a, b, _ in RELS:
+        a = str(a)
+        b = str(b)
+        parents.setdefault(a, []).append(b)
 
-# --- 输出父子关系 ---
-parents = {}
-for a, b, _ in RELS:
-    a = str(a)
-    b = str(b)
-    parents.setdefault(a, []).append(b)
-
-st.markdown("### Parent → Children")
-for p, children in parents.items():
-    safe_p = str(p).replace("{", "{{").replace("}", "}}")
-    safe_children = [str(c).replace("{", "{{").replace("}", "}}") for c in children]
-    st.markdown("**{}** → {}".format(safe_p, ", ".join(safe_children)))
+    st.markdown("### Parent → Children")
+    for p, children in parents.items():
+        st.markdown("**{}** → {}".format(p, ", ".join(children)))
 
 # --------------------
 # Style Transfer (AI)
