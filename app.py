@@ -566,54 +566,6 @@ elif page == "Art Data":
 # --------------------
 # Interactive Tests
 # --------------------
-elif page == "Interactive Tests":
-    st.header("Interactive Tests — Mythic Personality")
-    st.write("Two short tests — richer interpretation than before.")
-    st.subheader("Quick Deity (short)")
-    q1 = st.radio("In a group you:", ["Lead","Support","Create","Plan"])
-    q2 = st.radio("You value:", ["Power","Wisdom","Love","Joy"])
-    q3 = st.radio("Pick symbol:", ["Thunderbolt","Owl","Dove","Lyre"])
-    if st.button("Reveal deity"):
-        if q2=="Wisdom" or q3=="Owl":
-            st.markdown("### Athena — Strategy & Wisdom")
-            st.write("Themes: owls, armor, protective symbols")
-        elif q2=="Love" or q3=="Dove":
-            st.markdown("### Aphrodite — Love & Beauty")
-            st.write("Themes: love-narratives, beauty cult images")
-        elif q2=="Power" or q3=="Thunderbolt":
-            st.markdown("### Zeus — Authority")
-            st.write("Themes: thrones, lightning, oath scenes")
-        else:
-            st.markdown("### Apollo — Harmony, prophecy, arts")
-            st.write("Themes: lyres, prophetic scenes, sun imagery")
-
-    st.markdown("---")
-    st.subheader("Short archetype (8 items)")
-    qs = [
-        "I prefer leading groups.", "I trust logic over feelings.", "I feel energized by creativity.",
-        "I protect people close to me.", "I seek new experiences even if risky.", "I rely on rituals/tradition.",
-        "I act quickly in crises.", "I enjoy deep discussion about meaning."
-    ]
-    answers = []
-    for i, q in enumerate(qs):
-        answers.append(st.slider(f"{i+1}. {q}", 1, 5, 3, key=f"t{i}"))
-    if st.button("Reveal archetype"):
-        s_leader = answers[0] + answers[6]
-        s_logic = answers[1] + answers[7]
-        s_creative = answers[2] + answers[4]
-        s_protect = answers[3] + answers[5]
-        scores = {"Guardian": s_protect + s_leader, "Sage": s_logic, "Seeker": s_creative, "Warrior": s_leader + s_creative}
-        arche = max(scores, key=scores.get)
-        st.markdown(f"## {arche}")
-        if arche=="Guardian":
-            st.write("Guardian — order, protection, duty. Visual: thrones, ritual objects.")
-        elif arche=="Sage":
-            st.write("Sage — knowledge, strategy. Visual: owls, teaching scenes.")
-        elif arche=="Seeker":
-            st.write("Seeker — experience, ecstasy. Visual: feasts, music.")
-        else:
-            st.write("Warrior — challenge, mastery. Visual: battle scenes.")
-
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Interactive Force-directed Network")
     st.write(
@@ -667,7 +619,6 @@ elif page == "Mythic Lineages":
         )
         st.stop()
 
-    # 构建网络
     G = nx.Graph()
     for a, b, rel in RELS:
         G.add_node(a)
@@ -675,7 +626,6 @@ elif page == "Mythic Lineages":
         G.add_edge(a, b, relation=rel)
 
     nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
-
     try:
         nt.force_atlas_2based()
     except Exception:
@@ -697,7 +647,7 @@ elif page == "Mythic Lineages":
             components_html = f.read()
         st.components.v1.html(components_html, height=720)
     except Exception as e:
-        # 完全安全，不用 f-string
+        # 这里不用 f-string，完全安全
         st.error("Failed to render interactive network: {0}".format(e))
 
         # 回退显示关系列表
