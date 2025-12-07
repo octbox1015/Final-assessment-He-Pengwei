@@ -650,11 +650,16 @@ elif page == "Mythic Lineages":
         st.error("Failed to render interactive network: {0}".format(e))
 
         parents = {}
-        for a, b, _ in RELS:
-            parents.setdefault(a, []).append(b)
-        for p, children in parents.items():
-            safe_p = p.replace("{", "{{").replace("}", "}}")
-            st.markdown("**{0}** → {1}".format(safe_p, ", ".join(children)))
+for a, b, _ in RELS:
+    parents.setdefault(a, []).append(b)
+
+for p, children in parents.items():
+    # 转义大括号，保证 f-string 不报错
+    safe_p = p.replace("{", "{{").replace("}", "}}")
+    safe_children = [c.replace("{", "{{").replace("}", "}}") for c in children]
+    
+    # 使用 f-string 输出
+    st.markdown(f"**{safe_p}** → {', '.join(safe_children)}")
 
 # --------------------
 # Style Transfer (AI)
