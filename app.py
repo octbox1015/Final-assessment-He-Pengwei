@@ -857,23 +857,73 @@ elif page == "Myth Stories":
 
         client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
-        if st.button("Generate (AI)"):
-    with st.spinner("Generating..."):
+       import streamlit as st
+import openai
+
+# Make sure your OpenAI API key is set
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+st.title("🎨 AI Art Story Generator")
+
+# Character input
+character = st.text_input("Enter a character name", "Sun Wukong")
+
+# Artwork metadata (you can replace with your real data)
+meta = {
+    "title": "Sample Artwork",
+    "artistDisplayName": "Artist Name",
+    "objectDate": "2025"
+}
+
+# Myth seed database
+MYTH_DB = {
+    "Sun Wukong": "A monkey born from a stone egg with magical powers."
+}
+
+if st.button("Generate (AI)"):
+    with st.spinner("AI is generating content, please wait..."):
+        # Get the myth seed
         seed = MYTH_DB.get(character, "")
+        
         if meta:
+            # Escape any {} in seed to avoid f-string errors
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            prompt = f"""
-You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two sections:
+            # AI prompt
+            prompt = f"""You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two sections:
 
 1) Myth Narrative — a concise, emotive museum audio-guide style narrative about {character}. 
-Base on this seed: {safe_seed}
+Based on this seed: {safe_seed}
 
 2) Art Commentary — analyze the selected artwork titled "{meta.get('title')}", 
 by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. 
 Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. 
 Keep language accessible to students and exhibition visitors.
 """
+
+            # Call OpenAI API
+            response = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant for storytelling and art commentary."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            result = response.choices[0].message["content"]
+
+            # Display the AI-generated content
+            st.markdown("### ✨ AI-Generated Content")
+            st.write(result)
+
+            # Download button
+            file_name = f"{character}_story.txt"
+            st.download_button(
+                label="📥 Download Story Text",
+                data=result,
+                file_name=file_name,
+                mime="text/plain"
+            )
 
                 else:
                     prompt = f"""
