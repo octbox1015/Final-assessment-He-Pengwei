@@ -687,79 +687,76 @@ elif page == "Mythic Lineages":
 elif page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
-    st.write("""
-        Upload a **content image** and a **style image**.  
-        The AI model will generate a new artwork combining both.  
-        Best results examples:
-        - Portrait + Van Gogh  
-        - Landscape + Ukiyo-e  
-        - Statue + Modern painting  
-    """)
+st.write("""
+Upload a **content image** and a **style image**.  
+The AI model will generate a new artwork combining both.  
+Best results examples:
+- Portrait + Van Gogh  
+- Landscape + Ukiyo-e  
+- Statue + Modern painting
+""")
 
-    if "OPENAI_API_KEY" not in st.session_state:
-        st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
-    else:
-        try:
-            from openai import OpenAI
-        except Exception:
-            st.error("The OpenAI SDK is not installed in this environment. Please add 'openai>=1.0.0' to requirements.txt and redeploy.")
-            st.stop()
+if "OPENAI_API_KEY" not in st.session_state:
+    st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
+else:
+    try:
+        from openai import OpenAI
+    except Exception:
+        st.error("The OpenAI SDK is not installed in this environment. Please add 'openai>=1.0.0' to requirements.txt and redeploy.")
+        st.stop()
 
-        import base64
-        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+    import base64
+    client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
-        st.subheader("1. Upload Images")
-        content_img = st.file_uploader("Content Image", type=["png", "jpg", "jpeg"], key="content")
-        style_img = st.file_uploader("Style Image", type=["png", "jpg", "jpeg"], key="style")
+    st.subheader("1. Upload Images")
+    content_img = st.file_uploader("Content Image", type=["png", "jpg", "jpeg"], key="content")
+    style_img = st.file_uploader("Style Image", type=["png", "jpg", "jpeg"], key="style")
 
-        if content_img:
-            st.image(content_img, caption="Content Image", width=300)
-        if style_img:
-            st.image(style_img, caption="Style Image", width=300)
+    if content_img:
+        st.image(content_img, caption="Content Image", width=300)
+    if style_img:
+        st.image(style_img, caption="Style Image", width=300)
 
-        if content_img and style_img:
-            if st.button("Generate Style Transfer Image"):
-                with st.spinner("Generating stylized image..."):
-                    try:
-                        content_bytes = content_img.read()
-                        style_bytes = style_img.read()
+    if content_img and style_img:
+        if st.button("Generate Style Transfer Image"):
+            with st.spinner("Generating stylized image..."):
+                try:
+                    content_bytes = content_img.read()
+                    style_bytes = style_img.read()
 
-                        content_b64 = base64.b64encode(content_bytes).decode()
-                        style_b64 = base64.b64encode(style_bytes).decode()
+                    content_b64 = base64.b64encode(content_bytes).decode()
+                    style_b64 = base64.b64encode(style_bytes).decode()
 
-                        result = client.images.generate(
-                            model="gpt-image-1",
-                            prompt="Blend the content image with the style image into a single stylized artwork.",
-                            size="1024x1024",
-                            image=[
-                                {"data": content_b64},
-                                {"data": style_b64}
-                            ]
-                        )
+                    result = client.images.generate(
+                        model="gpt-image-1",
+                        prompt="Blend the content image with the style image into a single stylized artwork.",
+                        size="1024x1024",
+                        image=[
+                            {"data": content_b64},
+                            {"data": style_b64}
+                        ]
+                    )
 
-                        image_base64 = result.data[0].b64_json
-                        final_image = base64.b64decode(image_base64)
+                    image_base64 = result.data[0].b64_json
+                    final_image = base64.b64decode(image_base64)
 
-                        st.subheader("🎉 Result")
-                        st.image(final_image, caption="Stylized Output", use_column_width=True)
+                    st.subheader("🎉 Result")
+                    st.image(final_image, caption="Stylized Output", use_column_width=True)
 
-                        st.download_button(
-                            label="Download Stylized Image",
-                            data=final_image,
-                            file_name="style_transfer.png",
-                            mime="image/png"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to generate image: {e}")
+                    st.download_button(
+                        label="Download Stylized Image",
+                        data=final_image,
+                        file_name="style_transfer.png",
+                        mime="image/png"
+                    )
+                except Exception as e:
+                    st.error(f"Failed to generate image: {e}")
 
-# --------------------
-# AI Interpretation (chat about graph/data)
-# --------------------
+# -------------------- AI Interpretation --------------------
 elif page == "AI Interpretation":
     st.header("AI Interpretation for Network Graph")
     question = st.text_input("Ask AI about your network or data:")
     if question:
-        # prepare a short summary of available data
         try:
             from openai import OpenAI
         except Exception:
@@ -768,12 +765,14 @@ elif page == "AI Interpretation":
 
         client = OpenAI(api_key=st.session_state.get("OPENAI_API_KEY", ""))
 
-        # create a compact data summary (if available)
         summary_text = ""
         dataset = st.session_state.get("analysis_dataset")
         if dataset:
             sample = dataset[:10]
-            summary_text = json.dumps([{"objectID": m.get("objectID"), "title": m.get("title"), "date": m.get("objectDate")} for m in sample], ensure_ascii=False)
+            summary_text = json.dumps(
+                [{"objectID": m.get("objectID"), "title": m.get("title"), "date": m.get("objectDate")} for m in sample],
+                ensure_ascii=False
+            )
 
         prompt = f"You are an expert in art history and network analysis. Data summary:\n{summary_text}\nQuestion: {question}"
         with st.spinner("Querying AI..."):
@@ -785,7 +784,7 @@ elif page == "AI Interpretation":
         st.markdown("### Answer")
         st.write(answer)
 
-# -------------------- # Myth Stories (AI-assisted narratives + commentary) # --------------------
+# -------------------- Myth Stories --------------------
 if st.button("Generate (AI)"):
     with st.spinner("AI is generating content, please wait..."):
         seed = MYTH_DB.get(character, "")
@@ -794,10 +793,8 @@ if st.button("Generate (AI)"):
         elif not meta:
             st.warning("No artwork metadata available.")
         else:
-            # 转义 seed 中的 {}
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # 使用括号包裹 f-string，避免缩进问题
             prompt = (
                 f"You are an art historian and museum narrator. Using the myth seed and artwork metadata, "
                 f"produce two clearly separated sections:\n\n"
