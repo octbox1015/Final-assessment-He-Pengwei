@@ -889,18 +889,20 @@ if st.button("Generate (AI)"):
             # Escape any {} in seed to avoid f-string errors
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # AI prompt
-            prompt = f"""You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two sections:
+            # Prompt must be inside a string
+prompt = f"""You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two clearly separated sections:
 
-1) Myth Narrative — a concise, emotive museum audio-guide style narrative about {character}. 
-Based on this seed: {safe_seed}
+--- 
+Myth Narrative:
+Write a concise, emotive museum audio-guide style narrative about {character}. 
+Base it on this seed: {safe_seed}
 
-2) Art Commentary — analyze the selected artwork titled "{meta.get('title')}", 
-by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. 
+---
+Art Commentary:
+Analyze the selected artwork titled "{meta.get('title')}", by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. 
 Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. 
-Keep language accessible to students and exhibition visitors.
+Use language that is accessible to students and exhibition visitors.
 """
-
 
             # Call OpenAI API
             response = openai.ChatCompletion.create(
