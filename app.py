@@ -647,14 +647,11 @@ elif page == "Mythic Lineages":
             components_html = f.read()
         st.components.v1.html(components_html, height=720)
     except Exception as e:
-        # 这里不用 f-string，完全安全
         st.error("Failed to render interactive network: {0}".format(e))
 
-        # 回退显示关系列表
         parents = {}
         for a, b, _ in RELS:
             parents.setdefault(a, []).append(b)
-
         for p, children in parents.items():
             safe_p = p.replace("{", "{{").replace("}", "}}")
             st.markdown("**{0}** → {1}".format(safe_p, ", ".join(children)))
