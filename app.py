@@ -688,15 +688,15 @@ elif page == "Mythic Lineages":
         nt.add_edge(u, v, title=rel, value=1)
 
     tmpfile = "/tmp/myth_network.html"
-    try:
-        nt.show(tmpfile)
-        with open(tmpfile, "r", encoding="utf-8") as f:
-            components_html = f.read()
-        st.components.v1.html(components_html, height=720)
-   except Exception as e:
+try:
+    nt.show(tmpfile)
+    with open(tmpfile, "r", encoding="utf-8") as f:
+        components_html = f.read()
+    st.components.v1.html(components_html, height=720)
+except Exception as e:
     st.error(f"Failed to render interactive network: {e}")
     parents = {}
-    for a,b,_ in RELS:
+    for a, b, _ in RELS:
         parents.setdefault(a, []).append(b)
     for p, children in parents.items():
         st.markdown(f"**{p}** → " + ", ".join(children))
