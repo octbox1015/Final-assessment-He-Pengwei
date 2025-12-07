@@ -679,7 +679,7 @@ elif page == "Myth Stories":
 
                 if st.button("Generate Story & Commentary"):
                     with st.spinner("Generating story..."):
-                       prompt = f"""
+                      prompt = f"""
 You are an art historian and myth storyteller. Create two sections for exhibition-style text:
 
 Section 1 — Myth Narrative (museum audio-guide tone): tell the myth of the character {character} in a concise, emotive narrative.
