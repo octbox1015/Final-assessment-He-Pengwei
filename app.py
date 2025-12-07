@@ -786,37 +786,6 @@ elif page == "AI Interpretation":
         st.write(answer)
 
 # -------------------- # Myth Stories (AI-assisted narratives + commentary) # --------------------
-import streamlit as st
-import openai
-
-# 设置 OpenAI API key
-openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-st.header("📘 Myth Stories — Character Narratives & Artwork Commentary")
-
-# Myth seed 数据库
-MYTH_DB = {
-    "Orpheus":"Orpheus, son of Apollo, was a legendary musician whose songs could move all living things. He famously journeyed to the Underworld to recover his wife Eurydice.",
-    "Narcissus":"Narcissus was a youth of extraordinary beauty who fell in love with his own reflection and was transformed into the flower that bears his name.",
-    "Athena":"Athena is the goddess of wisdom, crafts and strategic warfare, often shown with an owl and a spear. She was born from Zeus's head fully armed.",
-    "Perseus":"Perseus, aided by the gods, defeated Medusa and rescued Andromeda from a sea monster.",
-    "Zeus":"Zeus is the king of gods, ruler of sky and thunder, known for his many myths and complex relationships with other gods."
-}
-
-# 选择角色
-character = st.selectbox("Choose a mythic figure", sorted(MYTH_DB.keys()))
-st.info(MYTH_DB.get(character, "No seed available; AI will craft the story."))
-
-# 示例 artwork 元数据
-meta = {
-    "title": "Sample Artwork",
-    "artistDisplayName": "Artist Name",
-    "objectDate": "2025"
-}
-
-st.markdown("---")
-st.subheader("Generate Story & Commentary")
-
 if st.button("Generate (AI)"):
     with st.spinner("AI is generating content, please wait..."):
         seed = MYTH_DB.get(character, "")
@@ -828,20 +797,21 @@ if st.button("Generate (AI)"):
             # 转义 seed 中的 {}
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # 正确闭合的 triple-quoted f-string
-            prompt = f"""You are an art historian and museum narrator. Using the myth seed and artwork metadata, produce two clearly separated sections:
-
----
-Myth Narrative:
-Write a concise, emotive museum audio-guide style narrative about {character}.
-Based on this seed: {safe_seed}
-
----
-Art Commentary:
-Analyze the selected artwork titled "{meta.get('title')}", by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.
-Discuss composition, lighting, pose, symbolism, and how the image relates to the myth.
-Use language that is accessible to students and exhibition visitors.
-"""
+            # 使用括号包裹 f-string，避免缩进问题
+            prompt = (
+                f"You are an art historian and museum narrator. Using the myth seed and artwork metadata, "
+                f"produce two clearly separated sections:\n\n"
+                f"---\n"
+                f"Myth Narrative:\n"
+                f"Write a concise, emotive museum audio-guide style narrative about {character}.\n"
+                f"Based on this seed: {safe_seed}\n\n"
+                f"---\n"
+                f"Art Commentary:\n"
+                f"Analyze the selected artwork titled \"{meta.get('title')}\", "
+                f"by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.\n"
+                f"Discuss composition, lighting, pose, symbolism, and how the image relates to the myth.\n"
+                f"Use language that is accessible to students and exhibition visitors.\n"
+            )
 
             try:
                 response = openai.ChatCompletion.create(
@@ -855,7 +825,6 @@ Use language that is accessible to students and exhibition visitors.
             except Exception as e:
                 result = f"[Generation failed: {e}]"
 
-            # 分段显示
             if "---" in result:
                 parts = result.split("---")
                 st.markdown("### ✨ Myth Narrative")
@@ -866,7 +835,6 @@ Use language that is accessible to students and exhibition visitors.
                 st.markdown("### 📖 Generated Text")
                 st.write(result)
 
-            # 下载按钮
             st.download_button(
                 label="📥 Download Story Text",
                 data=result,
