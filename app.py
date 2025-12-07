@@ -411,19 +411,28 @@ except Exception:
 if st.button("Explain Mythic Relationships (Museum style)"):
     with st.spinner("Generating relationship explanations..."):
         explanations = []
-        # If OpenAI key available, attempt to use model to refine explanations
         if "OPENAI_API_KEY" in st.session_state and st.session_state["OPENAI_API_KEY"]:
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
-        # Prepare compact data for the model
-        items_text = "\n".join([
-            f"{i+1}. {it['a']} -> {it['b']} (relation: {it['rel']})"
-            for i, it in enumerate(raw_items)
-        ])
-    except Exception as e:
-        st.warning(f"OpenAI initialization failed: {e}")
+                # Prepare compact data for the model
+                items_text = "\n".join([
+                    f"{i+1}. {it['a']} -> {it['b']} (relation: {it['rel']})"
+                    for i, it in enumerate(raw_items)
+                ])
+            except Exception as e:
+                st.warning(f"OpenAI initialization failed: {e}")
+
+            prompt = (
+                "You are an art historian writing museum-label style explanations.\n"
+                "Given the following mythic relations, produce a clear, academic museum-text explanation for each item.\n"
+                "Use one paragraph per relation. Keep each paragraph concise (2–4 sentences), formal and accessible to museum visitors.\n\n"
+                "Use the pattern:\n\n"
+                "🔹 A → B\n"
+                "Short academic explanation...\n\n"
+                f"Mythic Relations:\n{items_text}"
+            )
 
     prompt = f"""
 You are an art historian writing museum-label style explanations. 
