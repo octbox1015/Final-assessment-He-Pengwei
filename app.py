@@ -679,7 +679,7 @@ elif page == "Myth Stories":
 
                 if st.button("Generate Story & Commentary"):
                     with st.spinner("Generating story..."):
-                      prompt = f"""
+prompt = f"""
 You are an art historian and myth storyteller. Create two sections for exhibition-style text:
 
 Section 1 — Myth Narrative (museum audio-guide tone):
@@ -690,10 +690,16 @@ Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistD
 Discuss composition, light, pose, symbols, and the relationship between image and myth. 
 Keep language clear for students and exhibition visitors.
 """
-                     try:
-                            resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
-                            text_out = resp.output_text
-                        except Exception as e:
-                            text_out = f"[Generation failed: {e}]"
-                        st.markdown(text_out)
-                        st.download_button("Download story (txt)", data=text_out, file_name=f"{character}_story.txt")
+
+try:
+    resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+    text_out = resp.output_text
+except Exception as e:
+    text_out = f"[Generation failed: {e}]"
+
+st.markdown(text_out)
+st.download_button(
+    "Download story (txt)",
+    data=text_out,
+    file_name=f"{character}_story.txt"
+)
