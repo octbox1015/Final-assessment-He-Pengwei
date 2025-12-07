@@ -80,7 +80,14 @@ def generate_aliases(name: str) -> List[str]:
 st.sidebar.title("Mythic Art Explorer")
 st.sidebar.markdown("Browse MET artworks for Greek myths — Masonry gallery + modal viewer.")
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Page", ["Home", "Mythic Art Explorer", "Art Data", "Interactive Tests", "Mythic Lineages"], index=1)
+page = st.sidebar.radio("Page", [
+    "Home",
+    "Mythic Art Explorer",
+    "Art Data",
+    "Interactive Tests",
+    "Mythic Lineages",
+    "Style Transfer"   # ⭐ 新增页面
+], index=1)
 st.sidebar.markdown("---")
 st.sidebar.info("OpenAI integration is optional. For AI features, install `openai` and paste your key here.")
 api_key = st.sidebar.text_input("OpenAI API Key (optional, session only)", type="password", key="openai_key")
@@ -99,7 +106,6 @@ if page == "Home":
         Gallery is Masonry-style (responsive) — click thumbnails to open a fullscreen modal with Prev/Next arrows.
     """)
     st.write("Quick steps: Myhtic Art Explorer → choose figure → Fetch works → Click thumbnails.")
-
 # ---------- Mythic Art Explorer: Masonry gallery + HTML modal ----------
 elif page == "Mythic Art Explorer":
     st.header("Mythic Art Explorer — Greek Figures & Artworks")
@@ -158,7 +164,6 @@ elif page == "Mythic Art Explorer":
     else:
         st.write(f"Showing {len(thumbs)} artworks — the gallery below uses a responsive masonry layout.")
         # Prepare items to pass into embedded HTML
-        # We'll render the gallery and modal with a single HTML block (JS handles modal & prev/next)
         items_json = json.dumps(thumbs)
         # Masonry HTML/CSS/JS (responsive columns via media queries)
         html = f"""
@@ -330,7 +335,6 @@ elif page == "Mythic Art Explorer":
         function renderModal(index) {{
           const it = items[index];
           curIndex = index;
-          // prefer full if exists else thumb
           mImage.src = it.full || it.thumb;
           mTitle.textContent = it.title || 'Untitled';
           mArtist.textContent = it.artist || 'Unknown';
@@ -364,9 +368,7 @@ elif page == "Mythic Art Explorer":
         buildGallery();
         </script>
         """
-        # render the HTML block (height large enough to show gallery)
         st.components.v1.html(html, height=700, scrolling=True)
-
 # ---------- ART DATA ----------
 elif page == "Art Data":
     st.header("Art Data — Lightweight dataset summary (no pandas required)")
@@ -506,7 +508,7 @@ elif page == "Interactive Tests":
         else:
             st.write("Warrior — challenge, mastery. Visual: battle scenes.")
 
-# ---------- Mythic Lineages (fallback non-networkx) ----------
+# ---------- Mythic Lineages ----------
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Simplified network view")
     edges = [
@@ -517,7 +519,6 @@ elif page == "Mythic Lineages":
         ("Perseus","Theseus"),("Theseus","Achilles"),("Medusa","Perseus"),
         ("Minotaur","Theseus"),("Cyclops","Poseidon")
     ]
-    # Try to use networkx if installed (optional). If not, draw a simple Plotly sankey-like visual (or adjacency)
     try:
         import networkx as nx
         import plotly.graph_objects as go
@@ -544,3 +545,61 @@ elif page == "Mythic Lineages":
             parents.setdefault(a, []).append(b)
         for p, children in parents.items():
             st.markdown(f"**{p}** → " + ", ".join(children))
+
+# ---------- Style Transfer (NEW PAGE) ----------
+elif page == "Style Transfer":
+    st.header("🎨 AI Style Transfer — Blend two images into new art")
+
+    st.write("""
+        Upload a **content image** and a **style image**.  
+        The AI model will generate a new artwork combining both.  
+        Best results examples:
+        - Portrait + Van Gogh  
+        - Landscape + Ukiyo-e  
+        - Statue + Modern painting  
+    """)
+
+    if "OPENAI_API_KEY" not in st.session_state:
+        st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
+    else:
+        import openai, base64
+        openai.api_key = st.session_state["OPENAI_API_KEY"]
+
+        st.subheader("1. Upload Images")
+        content_img = st.file_uploader("Content Image", type=["png","jpg","jpeg"], key="content")
+        style_img = st.file_uploader("Style Image", type=["png","jpg","jpeg"], key="style")
+
+        if content_img:
+            st.image(content_img, caption="Content Image", width=300)
+        if style_img:
+            st.image(style_img, caption="Style Image", width=300)
+
+        if content_img and style_img:
+            if st.button("Generate Style Transfer Image"):
+                with st.spinner("Generating stylized image..."):
+
+                    c_bytes = content_img.read()
+                    s_bytes = style_img.read()
+
+                    c_b64 = base64.b64encode(c_bytes).decode("utf-8")
+                    s_b64 = base64.b64encode(s_bytes).decode("utf-8")
+
+                    result = openai.images.generate(
+                        model="gpt-image-1",
+                        prompt="Blend these two images: use the first image as content and second image as style.",
+                        images=[c_b64, s_b64],
+                        size="1024x1024"
+                    )
+
+                    final_b64 = result.data[0].b64_json
+                    final_img = base64.b64decode(final_b64)
+
+                    st.subheader("🎉 Result")
+                    st.image(final_img, use_column_width=True)
+
+                    st.download_button(
+                        "Download Result",
+                        final_img,
+                        file_name="style_transfer_result.png",
+                        mime="image/png"
+                    )
