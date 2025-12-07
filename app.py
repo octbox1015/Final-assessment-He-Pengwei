@@ -673,10 +673,10 @@ elif page == "Mythic Lineages":
         G.add_edge(a, b, relation=rel)
 
 nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
+
 try:
     nt.force_atlas_2based()
 except Exception:
-    # older pyvis might not have force_atlas_2based
     pass
 
 for n in G.nodes():
@@ -694,6 +694,7 @@ try:
     with open(tmpfile, "r", encoding="utf-8") as f:
         components_html = f.read()
     st.components.v1.html(components_html, height=720)
+
 except Exception as e:
     st.error(f"Failed to render interactive network: {e}")
 
