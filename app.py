@@ -619,42 +619,44 @@ elif page == "Interactive Tests":
 # --------------------
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Interactive Force-directed Network")
-    st.write("Interactive network of mythic figures — drag nodes, hover for short bio, click a node to highlight relations.")
+    st.write(
+        "Interactive network of mythic figures — drag nodes, hover for short bio, click a node to highlight relations."
+    )
 
     RELS = [
-        ("Chaos","Gaia","parent"),
-        ("Gaia","Uranus","parent"),
-        ("Uranus","Cronus","parent"),
-        ("Cronus","Zeus","parent"),
-        ("Cronus","Hera","parent"),
-        ("Cronus","Poseidon","parent"),
-        ("Cronus","Hades","parent"),
-        ("Zeus","Athena","parent"),
-        ("Zeus","Apollo","parent"),
-        ("Zeus","Artemis","parent"),
-        ("Zeus","Ares","parent"),
-        ("Zeus","Hermes","parent"),
-        ("Zeus","Dionysus","parent"),
-        ("Zeus","Perseus","parent"),
-        ("Zeus","Heracles","parent"),
-        ("Perseus","Theseus","influence"),
-        ("Theseus","Achilles","influence"),
-        ("Medusa","Perseus","conflict"),
-        ("Minotaur","Theseus","conflict"),
-        ("Cyclops","Poseidon","associate")
+        ("Chaos", "Gaia", "parent"),
+        ("Gaia", "Uranus", "parent"),
+        ("Uranus", "Cronus", "parent"),
+        ("Cronus", "Zeus", "parent"),
+        ("Cronus", "Hera", "parent"),
+        ("Cronus", "Poseidon", "parent"),
+        ("Cronus", "Hades", "parent"),
+        ("Zeus", "Athena", "parent"),
+        ("Zeus", "Apollo", "parent"),
+        ("Zeus", "Artemis", "parent"),
+        ("Zeus", "Ares", "parent"),
+        ("Zeus", "Hermes", "parent"),
+        ("Zeus", "Dionysus", "parent"),
+        ("Zeus", "Perseus", "parent"),
+        ("Zeus", "Heracles", "parent"),
+        ("Perseus", "Theseus", "influence"),
+        ("Theseus", "Achilles", "influence"),
+        ("Medusa", "Perseus", "conflict"),
+        ("Minotaur", "Theseus", "conflict"),
+        ("Cyclops", "Poseidon", "associate"),
     ]
 
     BIO = {
-        "Zeus":"King of the Olympian gods; thunder, authority.",
-        "Athena":"Goddess of wisdom and strategic warfare; associated with the owl.",
-        "Perseus":"Hero who beheaded Medusa and rescued Andromeda.",
-        "Medusa":"One of the Gorgons; her gaze turns mortals to stone.",
-        "Orpheus":"Legendary musician; journeyed to the Underworld for Eurydice.",
-        "Narcissus":"A youth who fell in love with his reflection.",
-        "Gaia":"Primordial Earth goddess.",
-        "Cronus":"Titan who fathered the first generation of Olympians.",
-        "Hera":"Queen of the gods; marriage and women.",
-        "Poseidon":"God of the sea."
+        "Zeus": "King of the Olympian gods; thunder, authority.",
+        "Athena": "Goddess of wisdom and strategic warfare; associated with the owl.",
+        "Perseus": "Hero who beheaded Medusa and rescued Andromeda.",
+        "Medusa": "One of the Gorgons; her gaze turns mortals to stone.",
+        "Orpheus": "Legendary musician; journeyed to the Underworld for Eurydice.",
+        "Narcissus": "A youth who fell in love with his reflection.",
+        "Gaia": "Primordial Earth goddess.",
+        "Cronus": "Titan who fathered the first generation of Olympians.",
+        "Hera": "Queen of the gods; marriage and women.",
+        "Poseidon": "God of the sea.",
     }
 
     try:
@@ -662,7 +664,10 @@ elif page == "Mythic Lineages":
         import networkx as nx
         import streamlit.components.v1 as components
     except Exception:
-        st.error("The 'pyvis' or 'networkx' package is not installed. Add 'pyvis' and 'networkx' to requirements.txt and redeploy.")
+        st.error(
+            "The 'pyvis' or 'networkx' package is not installed. "
+            "Add 'pyvis' and 'networkx' to requirements.txt and redeploy."
+        )
         st.stop()
 
     # 构建网络
