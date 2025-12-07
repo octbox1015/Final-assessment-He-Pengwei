@@ -1,33 +1,40 @@
-# app.py
+# final_app.py
 """
-Mythic Art Explorer — Masonry Gallery + Modal (floating arrows) — Stable minimal-deps edition
-A: automatic responsive columns (CSS media queries)
-1: floating arrows left/right in modal
+Mythic Art Explorer — Final integrated app
+Features:
+ - MET Museum API browsing (Masonry gallery + modal)
+ - Data visualization (Plotly)
+ - Interactive force-directed myth network (PyVis)
+ - Myth Stories (AI-generated narrative + artwork commentary)
+ - Style Transfer (OpenAI gpt-image-1)
+ - AI Interpretation (GPT-based analysis)
+ - Grouped sidebar (Main Pages / AI Tools)
 Notes:
- - Uses MET Collection API (no image downloading)
- - Minimal runtime deps to avoid build failures on Streamlit Cloud
- - OpenAI is optional (not installed by default)
+ - Requires dependencies: streamlit, plotly, networkx, pyvis, requests, pillow, openai>=1.0.0
+ - Add them to requirements.txt for Streamlit Cloud deployment
 """
 
 import streamlit as st
 import requests
-import math
 import time
 import collections
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict
 import plotly.express as px
 
-# ---------- Config ----------
+# Basic page config
 st.set_page_config(page_title="Mythic Art Explorer", layout="wide")
+
+# MET API endpoints
 MET_SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1/search"
 MET_OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{}"
 
+# Core myth list (you can expand)
 MYTH_LIST = [
     "Zeus","Hera","Athena","Apollo","Artemis","Aphrodite","Hermes","Dionysus","Ares","Hephaestus",
     "Poseidon","Hades","Demeter","Persephone","Hestia","Heracles","Perseus","Achilles","Odysseus",
     "Theseus","Jason","Medusa","Minotaur","Sirens","Cyclops","Centaur","Prometheus","Orpheus",
-    "Eros","Nike","The Muses","The Fates","The Graces","Hecate","Atlas","Pandora"
+    "Eros","Nike","Hecate","Atlas","Pandora","Narcissus","Echo","Rhea","Cronus"
 ]
 
 FIXED_BIOS = {
@@ -37,7 +44,9 @@ FIXED_BIOS = {
     "Perseus": "Perseus: the hero who beheaded Medusa and rescued Andromeda."
 }
 
-# ---------- Helpers: MET API (no heavy libs) ----------
+# --------------------
+# Helpers: MET API
+# --------------------
 @st.cache_data(ttl=60*60*24, show_spinner=False)
 def met_search_ids(q: str, max_results: int = 200) -> List[int]:
     try:
@@ -68,28 +77,33 @@ def generate_aliases(name: str) -> List[str]:
         "Medusa": ["Gorgon"]
     }
     aliases = [name] + mapping.get(name, [])
-    aliases += [f"{name} myth", f"{name} greek"]
-    # dedupe while preserving order
+    aliases += [f"{name} myth", f"{name} greek", f"{name} mythology"]
     seen = set(); out = []
     for a in aliases:
         if a not in seen:
             seen.add(a); out.append(a)
     return out
 
-# ---------- Sidebar ----------
+# --------------------
+# Sidebar (grouped)
+# --------------------
 st.sidebar.title("Mythic Art Explorer")
 st.sidebar.markdown("Browse MET artworks for Greek myths — Masonry gallery + modal viewer.")
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Page", [
-    "Home",
-    "Mythic Art Explorer",
-    "Art Data",
-    "Interactive Tests",
-    "Mythic Lineages",
-    "Style Transfer"   # ⭐ 新增页面
-], index=1)
+
+st.sidebar.markdown("### Main Pages")
+main_pages = ["Home", "Mythic Art Explorer", "Art Data", "Interactive Tests", "Mythic Lineages"]
+sel_main = st.sidebar.selectbox("Main Pages", main_pages, index=1)
+
+st.sidebar.markdown("### AI Tools")
+ai_tools = ["AI Interpretation", "Style Transfer", "Myth Stories"]
+sel_tool = st.sidebar.selectbox("AI Tools (choose one or None)", ["None"] + ai_tools, index=0)
+
+# Decide active page: tool selection overrides main pages
+page = sel_tool if sel_tool != "None" else sel_main
+
 st.sidebar.markdown("---")
-st.sidebar.info("OpenAI integration is optional. For AI features, install `openai` and paste your key here.")
+st.sidebar.info("OpenAI integration is optional. For AI features, add 'openai' to requirements and paste your key here.")
 api_key = st.sidebar.text_input("OpenAI API Key (optional, session only)", type="password", key="openai_key")
 if st.sidebar.button("Save API key", key="save_openai"):
     if api_key:
@@ -98,15 +112,21 @@ if st.sidebar.button("Save API key", key="save_openai"):
     else:
         st.sidebar.warning("Provide a valid key.")
 
-# ---------- Home ----------
+# --------------------
+# Page: Home
+# --------------------
 if page == "Home":
     st.title("🏛 Mythic Art Explorer")
     st.write("""
         Explore Greek myth characters and real artworks from The MET.  
         Gallery is Masonry-style (responsive) — click thumbnails to open a fullscreen modal with Prev/Next arrows.
     """)
-    st.write("Quick steps: Myhtic Art Explorer → choose figure → Fetch works → Click thumbnails.")
-# ---------- Mythic Art Explorer: Masonry gallery + HTML modal ----------
+    st.write("Quick steps: Mythic Art Explorer → choose figure → Fetch works → Click thumbnails.")
+    st.write("Use the AI Tools section for style transfer and myth storytelling.")
+
+# --------------------
+# Page: Mythic Art Explorer (Masonry + Modal)
+# --------------------
 elif page == "Mythic Art Explorer":
     st.header("Mythic Art Explorer — Greek Figures & Artworks")
     selected = st.selectbox("Choose a mythic figure", MYTH_LIST, index=0)
@@ -135,9 +155,7 @@ elif page == "Mythic Art Explorer":
             meta = met_get_object_cached(oid)
             if not meta:
                 continue
-            # prefer primaryImageSmall for thumbnails, fallback to primaryImage or additionalImages
             thumb_url = meta.get("primaryImageSmall") or meta.get("primaryImage")
-            # full image: prefer primaryImage, else additionalImages[0]
             full_url = meta.get("primaryImage") or (meta.get("additionalImages") or [None])[0]
             if thumb_url:
                 thumbs.append({
@@ -163,17 +181,13 @@ elif page == "Mythic Art Explorer":
         st.info("No thumbnails yet. Click 'Fetch related works (image URLs)'.")
     else:
         st.write(f"Showing {len(thumbs)} artworks — the gallery below uses a responsive masonry layout.")
-        # Prepare items to pass into embedded HTML
         items_json = json.dumps(thumbs)
-        # Masonry HTML/CSS/JS (responsive columns via media queries)
         html = f"""
         <style>
-        /* Masonry using CSS columns + simple card styles */
         .masonry-container {{
           column-gap: 16px;
           padding: 6px;
         }}
-        /* Responsive column counts: A = automatic by viewport */
         @media (min-width: 1400px) {{ .masonry-container {{ column-count: 4; }} }}
         @media (min-width: 1000px) and (max-width: 1399px) {{ .masonry-container {{ column-count: 3; }} }}
         @media (min-width: 700px) and (max-width: 999px) {{ .masonry-container {{ column-count: 2; }} }}
@@ -200,7 +214,6 @@ elif page == "Mythic Art Explorer":
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
           font-size: 13px;
         }}
-        /* Modal overlay */
         .m-modal {{
           position: fixed;
           z-index: 9999;
@@ -241,7 +254,6 @@ elif page == "Mythic Art Explorer":
           padding: 16px;
           border-radius: 6px;
         }}
-        /* Floating arrows (A + 1 style) */
         .m-arrow {{
           position: absolute;
           top: 50%;
@@ -276,7 +288,6 @@ elif page == "Mythic Art Explorer":
 
         <div id="gallery" class="masonry-container"></div>
 
-        <!-- Modal -->
         <div id="mModal" class="m-modal" role="dialog" aria-hidden="true">
           <div class="m-modal-content" id="mContent">
             <div class="m-modal-image" id="mImageWrap"><img id="mImage" src="" alt="Artwork"/></div>
@@ -298,7 +309,6 @@ elif page == "Mythic Art Explorer":
         <script>
         const items = {items_json};
 
-        // build gallery
         const gallery = document.getElementById('gallery');
         function buildGallery() {{
           gallery.innerHTML = '';
@@ -319,7 +329,6 @@ elif page == "Mythic Art Explorer":
           }});
         }}
 
-        // Modal logic
         let curIndex = 0;
         const modal = document.getElementById('mModal');
         const mImage = document.getElementById('mImage');
@@ -364,12 +373,14 @@ elif page == "Mythic Art Explorer":
           }}
         }});
 
-        // initial build
         buildGallery();
         </script>
         """
         st.components.v1.html(html, height=700, scrolling=True)
-# ---------- ART DATA ----------
+
+# --------------------
+# Page: Art Data
+# --------------------
 elif page == "Art Data":
     st.header("Art Data — Lightweight dataset summary (no pandas required)")
     figure = st.selectbox("Choose figure", MYTH_LIST)
@@ -405,15 +416,13 @@ elif page == "Art Data":
         st.info("No dataset loaded yet.")
     else:
         st.write(f"Analyzing {len(dataset)} records")
-        # lightweight stats
         def stats_from(ds):
             years=[]; mediums=[]; cultures=[]; tags=[]
             gvr = {"greek":0,"roman":0,"other":0}
             for m in ds:
                 y = m.get("objectBeginDate")
                 if isinstance(y,int): years.append(y)
-                od = (m.get("objectDate") or "") 
-                # naive parse
+                od = (m.get("objectDate") or "")
                 try:
                     if isinstance(od,str) and od.strip().isdigit():
                         years.append(int(od.strip()))
@@ -445,7 +454,6 @@ elif page == "Art Data":
         fig3 = px.pie(values=[g["greek"], g["roman"], g["other"]], names=["Greek","Roman","Other"], title="Greek vs Roman vs Other (heuristic)")
         st.plotly_chart(fig3, use_container_width=True)
 
-        # CSV export using built-in csv module (no pandas)
         if st.button("Export CSV (clean)"):
             import csv, io
             out = io.StringIO()
@@ -459,7 +467,9 @@ elif page == "Art Data":
                 ])
             st.download_button("Download CSV", data=out.getvalue(), file_name=f"met_{figure}_dataset.csv", mime="text/csv")
 
-# ---------- Interactive Tests ----------
+# --------------------
+# Interactive Tests
+# --------------------
 elif page == "Interactive Tests":
     st.header("Interactive Tests — Mythic Personality")
     st.write("Two short tests — richer interpretation than before.")
@@ -508,45 +518,96 @@ elif page == "Interactive Tests":
         else:
             st.write("Warrior — challenge, mastery. Visual: battle scenes.")
 
-# ---------- Mythic Lineages ----------
+# --------------------
+# Mythic Lineages (Interactive PyVis) - replaced earlier static graph
+# --------------------
 elif page == "Mythic Lineages":
-    st.header("Mythic Lineages — Simplified network view")
-    edges = [
-        ("Chaos","Gaia"),("Gaia","Uranus"),("Uranus","Cronus"),("Cronus","Zeus"),
-        ("Cronus","Hera"),("Cronus","Poseidon"),("Cronus","Hades"),
-        ("Zeus","Athena"),("Zeus","Apollo"),("Zeus","Artemis"),("Zeus","Ares"),
-        ("Zeus","Hermes"),("Zeus","Dionysus"),("Zeus","Perseus"),("Zeus","Heracles"),
-        ("Perseus","Theseus"),("Theseus","Achilles"),("Medusa","Perseus"),
-        ("Minotaur","Theseus"),("Cyclops","Poseidon")
+    st.header("Mythic Lineages — Interactive Force-directed Network")
+
+    st.write("Interactive network of mythic figures — drag nodes, hover for short bio, click a node to highlight relations.")
+
+    RELS = [
+        ("Chaos","Gaia","parent"),
+        ("Gaia","Uranus","parent"),
+        ("Uranus","Cronus","parent"),
+        ("Cronus","Zeus","parent"),
+        ("Cronus","Hera","parent"),
+        ("Cronus","Poseidon","parent"),
+        ("Cronus","Hades","parent"),
+        ("Zeus","Athena","parent"),
+        ("Zeus","Apollo","parent"),
+        ("Zeus","Artemis","parent"),
+        ("Zeus","Ares","parent"),
+        ("Zeus","Hermes","parent"),
+        ("Zeus","Dionysus","parent"),
+        ("Zeus","Perseus","parent"),
+        ("Zeus","Heracles","parent"),
+        ("Perseus","Theseus","influence"),
+        ("Theseus","Achilles","influence"),
+        ("Medusa","Perseus","conflict"),
+        ("Minotaur","Theseus","conflict"),
+        ("Cyclops","Poseidon","associate")
     ]
+
+    BIO = {
+        "Zeus":"King of the Olympian gods; thunder, authority.",
+        "Athena":"Goddess of wisdom and strategic warfare; associated with the owl.",
+        "Perseus":"Hero who beheaded Medusa and rescued Andromeda.",
+        "Medusa":"One of the Gorgons; her gaze turns mortals to stone.",
+        "Orpheus":"Legendary musician; journeyed to the Underworld for Eurydice.",
+        "Narcissus":"A youth who fell in love with his reflection.",
+        "Gaia":"Primordial Earth goddess.",
+        "Cronus":"Titan who fathered the first generation of Olympians.",
+        "Hera":"Queen of the gods; marriage and women.",
+        "Poseidon":"God of the sea."
+    }
+
     try:
+        from pyvis.network import Network
         import networkx as nx
-        import plotly.graph_objects as go
-        G = nx.DiGraph()
-        G.add_edges_from(edges)
-        pos = nx.spring_layout(G, seed=42, k=0.6)
-        edge_x=[]; edge_y=[]
-        for s, t in G.edges():
-            x0,y0 = pos[s]; x1,y1 = pos[t]
-            edge_x += [x0, x1, None]; edge_y += [y0, y1, None]
-        node_x=[]; node_y=[]; labels=[]
-        for n in G.nodes():
-            x,y = pos[n]; node_x.append(x); node_y.append(y); labels.append(n)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=edge_x, y=edge_y, mode='lines', line=dict(width=1,color='#999'), hoverinfo='none'))
-        fig.add_trace(go.Scatter(x=node_x, y=node_y, mode='markers+text', text=labels, textposition='top center',
-                                 marker=dict(size=18, color='#3A8DFF')))
-        fig.update_layout(showlegend=False, xaxis=dict(visible=False), yaxis=dict(visible=False), height=700)
-        st.plotly_chart(fig, use_container_width=True)
+        import streamlit.components.v1 as components
     except Exception:
-        st.info("Interactive network libs not available — showing adjacency lists instead.")
+        st.error("The 'pyvis' or 'networkx' package is not installed. Add 'pyvis' and 'networkx' to requirements.txt and redeploy.")
+        st.stop()
+
+    G = nx.Graph()
+    for a,b,rel in RELS:
+        G.add_node(a)
+        G.add_node(b)
+        G.add_edge(a, b, relation=rel)
+
+    nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
+    try:
+        nt.force_atlas_2based()
+    except Exception:
+        # older pyvis might not have force_atlas_2based
+        pass
+
+    for n in G.nodes():
+        title = BIO.get(n, "No bio available.")
+        nt.add_node(n, label=n, title=title, value=2)
+
+    for u, v, data in G.edges(data=True):
+        rel = data.get("relation", "")
+        nt.add_edge(u, v, title=rel, value=1)
+
+    tmpfile = "/tmp/myth_network.html"
+    try:
+        nt.show(tmpfile)
+        with open(tmpfile, "r", encoding="utf-8") as f:
+            components_html = f.read()
+        st.components.v1.html(components_html, height=720)
+    except Exception as e:
+        st.error(f"Failed to render interactive network: {e}")
         parents = {}
-        for a,b in edges:
+        for a,b,_ in RELS:
             parents.setdefault(a, []).append(b)
         for p, children in parents.items():
             st.markdown(f"**{p}** → " + ", ".join(children))
-# ---------- Style Transfer (NEW PAGE) ----------
 
+# --------------------
+# Style Transfer (AI)
+# --------------------
 elif page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
@@ -615,29 +676,65 @@ elif page == "Style Transfer":
                     except Exception as e:
                         st.error(f"Failed to generate image: {e}")
 
+# --------------------
+# AI Interpretation (chat about graph/data)
+# --------------------
+elif page == "AI Interpretation":
+    st.header("AI Interpretation for Network Graph")
+    question = st.text_input("Ask AI about your network or data:")
+    if question:
+        # prepare a short summary of available data
+        try:
+            from openai import OpenAI
+        except Exception:
+            st.error("OpenAI SDK not installed. Add 'openai>=1.0.0' to requirements.txt and redeploy.")
+            st.stop()
 
-# ---------- Myth Stories (NEW PAGE) ----------
+        client = OpenAI(api_key=st.session_state.get("OPENAI_API_KEY", ""))
+
+        # create a compact data summary (if available)
+        summary_text = ""
+        dataset = st.session_state.get("analysis_dataset")
+        if dataset:
+            sample = dataset[:10]
+            summary_text = json.dumps([{"objectID": m.get("objectID"), "title": m.get("title"), "date": m.get("objectDate")} for m in sample], ensure_ascii=False)
+
+        prompt = f"You are an expert in art history and network analysis. Data summary:\n{summary_text}\nQuestion: {question}"
+        with st.spinner("Querying AI..."):
+            try:
+                resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+                answer = resp.output_text
+            except Exception as e:
+                answer = f"[AI query failed: {e}]"
+        st.markdown("### Answer")
+        st.write(answer)
+
+# --------------------
+# Myth Stories (AI-assisted narratives + commentary)
+# --------------------
 elif page == "Myth Stories":
-    st.header("📘 Myth Stories — Artworks & Mythological Narratives")
+    st.header("📘 Myth Stories — Character Narratives & Artwork Commentary")
 
-    st.write("""
-        Select a mythic figure; the system will:
-        - 🎨 search MET artworks related to the figure
-        - 📚 display the artwork and provide a structured art commentary
-        - 🧿 automatically generate a myth narrative and artwork analysis
-    """)
+    st.write("Choose a character, optionally pick one of the MET artworks returned, and generate a museum-style narrative + art commentary (AI-assisted).")
 
-    # select character
-    character = st.selectbox("Choose a mythic figure", MYTH_LIST)
+    # Local myth seed database (expand as needed)
+    MYTH_DB = {
+        "Orpheus":"Orpheus, son of Apollo, was a legendary musician whose songs could move all living things. He famously journeyed to the Underworld to recover his wife Eurydice.",
+        "Narcissus":"Narcissus was a youth of extraordinary beauty who fell in love with his own reflection and was transformed into the flower that bears his name.",
+        "Athena":"Athena is the goddess of wisdom, crafts and strategic warfare, often shown with an owl and a spear. She was born from Zeus's head fully armed.",
+        "Perseus":"Perseus, aided by the gods, defeated Medusa and rescued Andromeda from a sea monster.",
+        "Zeus":"Zeus is the king of gods, ruler of sky and thunder, known for his many myths and complex relationships with other gods."
+    }
 
-    aliases = generate_aliases(character)
-    st.markdown("**Search aliases (used when querying MET):**")
-    st.write(aliases)
+    character = st.selectbox("Choose a mythic figure", sorted(MYTH_LIST))
+    st.write("Myth seed (local):")
+    st.info(MYTH_DB.get(character, "No seed available; AI will craft the story."))
 
     if st.button("Search related artworks (MET)"):
         st.info("Searching MET for related artworks...")
         all_ids = []
         p = st.progress(0)
+        aliases = generate_aliases(character)
         for i, a in enumerate(aliases):
             ids = met_search_ids(a, max_results=40)
             for oid in ids:
@@ -646,60 +743,79 @@ elif page == "Myth Stories":
             p.progress(int((i+1)/len(aliases)*100))
         p.empty()
         st.session_state["myth_story_ids"] = all_ids
-        st.success(f"Found {len(all_ids)} artworks. Choose one to generate a story.")
+        st.success(f"Found {len(all_ids)} artworks for {character}.")
 
-    ids = st.session_state.get("myth_story_ids")
+    ids = st.session_state.get("myth_story_ids", [])
+    chosen_id = None
+    meta = None
     if ids:
-        st.subheader("🔍 Results (select an artwork)")
-        chosen_id = st.selectbox("Choose artwork (ObjectID)", ids)
+        chosen_id = st.selectbox("Choose an artwork (optional)", ["None"] + ids)
+        if chosen_id and chosen_id != "None":
+            try:
+                chosen_id = int(chosen_id)
+                meta = met_get_object_cached(chosen_id)
+            except Exception:
+                meta = None
+            if meta:
+                img_url = meta.get("primaryImageSmall") or meta.get("primaryImage") or ""
+                if img_url:
+                    st.image(img_url, caption=meta.get("title"), width=360)
+                st.markdown(f"### 🖼️ {meta.get('title') or 'Untitled'}")
+                st.write(f"**Artist**: {meta.get('artistDisplayName') or 'Unknown'}")
+                st.write(f"**Date**: {meta.get('objectDate') or 'Unknown'}")
+                st.write(f"**Medium**: {meta.get('medium') or 'Unknown'}")
+                st.write(f"[View on MET]({meta.get('objectURL')})")
 
-        meta = met_get_object_cached(chosen_id)
-        if meta:
-            img_url = meta.get("primaryImageSmall") or meta.get("primaryImage") or ""
-            if img_url:
-                st.image(img_url, caption=meta.get("title"), width=360)
-            st.markdown(f"### 🖼️ {meta.get('title') or 'Untitled'}")
-            st.write(f"**Artist**: {meta.get('artistDisplayName') or 'Unknown'}")
-            st.write(f"**Date**: {meta.get('objectDate') or 'Unknown'}")
-            st.write(f"**Medium**: {meta.get('medium') or 'Unknown'}")
-            st.write(f"[View on MET]({meta.get('objectURL')})")
-            st.markdown("---")
-            st.subheader("📘 Generated Myth Story & Art Commentary")
+    st.markdown("---")
+    st.subheader("Generate Story & Commentary")
+    st.write("You can generate (A) just the myth narrative, or (B) narrative + artwork commentary if a work is selected.")
 
-            if "OPENAI_API_KEY" not in st.session_state:
-                st.warning("Please enter your OpenAI API Key in the sidebar to generate stories.")
-            else:
-                try:
-                    from openai import OpenAI
-                except Exception:
-                    st.error("OpenAI SDK not installed. Add 'openai>=1.0.0' to requirements.txt and redeploy.")
-                    st.stop()
+    if "OPENAI_API_KEY" not in st.session_state:
+        st.warning("Enter your OpenAI API Key in the sidebar to enable AI generation.")
+    else:
+        try:
+            from openai import OpenAI
+        except Exception:
+            st.error("OpenAI SDK not installed. Please add 'openai>=1.0.0' to requirements.txt and redeploy.")
+            st.stop()
 
-                client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
-                if st.button("Generate Story & Commentary"):
-                    with st.spinner("Generating story..."):
-                     prompt = f"""
-You are an art historian and myth storyteller. Create two sections for exhibition-style text:
+        if st.button("Generate (AI)"):
+            with st.spinner("Generating..."):
+                seed = MYTH_DB.get(character, "")
+                if meta:
+                    prompt = f"""
+You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two sections:
 
-Section 1 — Myth Narrative (museum audio-guide tone):
-Tell the myth of the character {character} in a concise, emotive narrative.
+1) Myth Narrative — a concise, emotive museum audio-guide style narrative about {character}. Base on this seed: {seed}
 
-Section 2 — Art Commentary:
-Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.
-Discuss composition, light, pose, symbols, and the relationship between image and myth. 
-Keep language clear for students and exhibition visitors.
+2) Art Commentary — analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. Keep language accessible to students and exhibition visitors.
+"""
+                else:
+                    prompt = f"""
+You are an art historian and museum narrator. Produce a concise, emotive museum audio-guide style narrative about {character} based on this seed: {seed}
 """
 
-try:
-    resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
-    text_out = resp.output_text
-except Exception as e:
-    text_out = f"[Generation failed: {e}]"
+                try:
+                    resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+                    text_out = resp.output_text
+                except Exception as e:
+                    text_out = f"[Generation failed: {e}]"
 
-st.markdown(text_out)
-st.download_button(
-    "Download story (txt)",
-    data=text_out,
-    file_name=f"{character}_story.txt"
-)
+                st.markdown("### 📖 Generated Text")
+                st.write(text_out)
+                st.download_button("Download story (txt)", data=text_out, file_name=f"{character}_story.txt")
+
+# --------------------
+# About / Footer
+# --------------------
+elif page == "About":
+    st.header("About")
+    st.write("Created by Pengwei He for the Final Assessment — Mythic Art Explorer.")
+    st.write("Features: MET API browsing, data visualization, interactive network, AI story generation, and style-transfer image synthesis.")
+
+# --------------------
+# End of app
+# --------------------
+
