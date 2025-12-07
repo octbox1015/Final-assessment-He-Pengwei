@@ -785,111 +785,25 @@ elif page == "AI Interpretation":
         st.markdown("### Answer")
         st.write(answer)
 
-# --------------------
-# Myth Stories (AI-assisted narratives + commentary)
-# --------------------
-elif page == "Myth Stories":
-    st.header("📘 Myth Stories — Character Narratives & Artwork Commentary")
-
-    st.write("Choose a character, optionally pick one of the MET artworks returned, and generate a museum-style narrative + art commentary (AI-assisted).")
-
-    # Local myth seed database (expand as needed)
-    MYTH_DB = {
-        "Orpheus":"Orpheus, son of Apollo, was a legendary musician whose songs could move all living things. He famously journeyed to the Underworld to recover his wife Eurydice.",
-        "Narcissus":"Narcissus was a youth of extraordinary beauty who fell in love with his own reflection and was transformed into the flower that bears his name.",
-        "Athena":"Athena is the goddess of wisdom, crafts and strategic warfare, often shown with an owl and a spear. She was born from Zeus's head fully armed.",
-        "Perseus":"Perseus, aided by the gods, defeated Medusa and rescued Andromeda from a sea monster.",
-        "Zeus":"Zeus is the king of gods, ruler of sky and thunder, known for his many myths and complex relationships with other gods."
-    }
-
-    character = st.selectbox("Choose a mythic figure", sorted(MYTH_LIST))
-    st.write("Myth seed (local):")
-    st.info(MYTH_DB.get(character, "No seed available; AI will craft the story."))
-
-    if st.button("Search related artworks (MET)"):
-        st.info("Searching MET for related artworks...")
-        all_ids = []
-        p = st.progress(0)
-        aliases = generate_aliases(character)
-        for i, a in enumerate(aliases):
-            ids = met_search_ids(a, max_results=40)
-            for oid in ids:
-                if oid not in all_ids:
-                    all_ids.append(oid)
-            p.progress(int((i+1)/len(aliases)*100))
-        p.empty()
-        st.session_state["myth_story_ids"] = all_ids
-        st.success(f"Found {len(all_ids)} artworks for {character}.")
-
-    ids = st.session_state.get("myth_story_ids", [])
-    chosen_id = None
-    meta = None
-    if ids:
-        chosen_id = st.selectbox("Choose an artwork (optional)", ["None"] + ids)
-        if chosen_id and chosen_id != "None":
-            try:
-                chosen_id = int(chosen_id)
-                meta = met_get_object_cached(chosen_id)
-            except Exception:
-                meta = None
-            if meta:
-                img_url = meta.get("primaryImageSmall") or meta.get("primaryImage") or ""
-                if img_url:
-                    st.image(img_url, caption=meta.get("title"), width=360)
-                st.markdown(f"### 🖼️ {meta.get('title') or 'Untitled'}")
-                st.write(f"**Artist**: {meta.get('artistDisplayName') or 'Unknown'}")
-                st.write(f"**Date**: {meta.get('objectDate') or 'Unknown'}")
-                st.write(f"**Medium**: {meta.get('medium') or 'Unknown'}")
-                st.write(f"[View on MET]({meta.get('objectURL')})")
-
-    st.markdown("---")
-    st.subheader("Generate Story & Commentary")
-    st.write("You can generate (A) just the myth narrative, or (B) narrative + artwork commentary if a work is selected.")
-
-    if "OPENAI_API_KEY" not in st.session_state:
-        st.warning("Enter your OpenAI API Key in the sidebar to enable AI generation.")
-    else:
-        try:
-            from openai import OpenAI
-        except Exception:
-            st.error("OpenAI SDK not installed. Please add 'openai>=1.0.0' to requirements.txt and redeploy.")
-            st.stop()
-
-        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
-
-       import streamlit as st
-import openai
-
-# Make sure your OpenAI API key is set
-openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-st.title("🎨 AI Art Story Generator")
-
-# Character input
-character = st.text_input("Enter a character name", "Sun Wukong")
-
-# Artwork metadata (you can replace with your real data)
-meta = {
-    "title": "Sample Artwork",
-    "artistDisplayName": "Artist Name",
-    "objectDate": "2025"
-}
-
-# Myth seed database
-MYTH_DB = {
-    "Sun Wukong": "A monkey born from a stone egg with magical powers."
-}
-
 import streamlit as st
 import openai
 
-# Set your OpenAI API key in Streamlit secrets
+# Set your OpenAI API key
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-st.title("🎨 AI Myth & Art Story Generator")
+st.header("📘 Myth Stories — Character Narratives & Artwork Commentary")
 
-# Character input
-character = st.text_input("Enter a character name", "Sun Wukong")
+# Local myth seed database
+MYTH_DB = {
+    "Orpheus":"Orpheus, son of Apollo, was a legendary musician whose songs could move all living things. He famously journeyed to the Underworld to recover his wife Eurydice.",
+    "Narcissus":"Narcissus was a youth of extraordinary beauty who fell in love with his own reflection and was transformed into the flower that bears his name.",
+    "Athena":"Athena is the goddess of wisdom, crafts and strategic warfare, often shown with an owl and a spear. She was born from Zeus's head fully armed.",
+    "Perseus":"Perseus, aided by the gods, defeated Medusa and rescued Andromeda from a sea monster.",
+    "Zeus":"Zeus is the king of gods, ruler of sky and thunder, known for his many myths and complex relationships with other gods."
+}
+
+character = st.selectbox("Choose a mythic figure", sorted(MYTH_DB.keys()))
+st.info(MYTH_DB.get(character, "No seed available; AI will craft the story."))
 
 # Example artwork metadata
 meta = {
@@ -898,10 +812,8 @@ meta = {
     "objectDate": "2025"
 }
 
-# Myth seed database
-MYTH_DB = {
-    "Sun Wukong": "A monkey born from a stone egg with magical powers."
-}
+st.markdown("---")
+st.subheader("Generate Story & Commentary")
 
 if st.button("Generate (AI)"):
     with st.spinner("AI is generating content, please wait..."):
@@ -911,9 +823,10 @@ if st.button("Generate (AI)"):
         elif not meta:
             st.warning("No artwork metadata available.")
         else:
+            # Escape {} in seed
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # Prompt with proper triple-quote and correct indentation
+            # AI prompt with triple quotes and correct indentation
             prompt = f"""You are an art historian and museum narrator. Using the myth seed and artwork metadata, produce two clearly separated sections:
 
 ---
@@ -940,6 +853,7 @@ Use language that is accessible to students and exhibition visitors.
             except Exception as e:
                 result = f"[Generation failed: {e}]"
 
+            # Split and display Myth Narrative and Art Commentary
             if "---" in result:
                 parts = result.split("---")
                 st.markdown("### ✨ Myth Narrative")
@@ -950,6 +864,7 @@ Use language that is accessible to students and exhibition visitors.
                 st.markdown("### 📖 Generated Text")
                 st.write(result)
 
+            # Download button
             st.download_button(
                 label="📥 Download Story Text",
                 data=result,
