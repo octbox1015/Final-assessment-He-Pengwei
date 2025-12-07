@@ -546,6 +546,7 @@ elif page == "Mythic Lineages":
         for p, children in parents.items():
             st.markdown(f"**{p}** → " + ", ".join(children))
 # ---------- Style Transfer (NEW PAGE) ----------
+
 elif page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
@@ -561,10 +562,12 @@ elif page == "Style Transfer":
     if "OPENAI_API_KEY" not in st.session_state:
         st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
     else:
-        # ------------------------------------
-        # NEW OPENAI SDK (2024+)  <-- FIXED
-        # ------------------------------------
-        from openai import OpenAI
+        try:
+            from openai import OpenAI
+        except Exception:
+            st.error("The OpenAI SDK is not installed in this environment. Please add 'openai>=1.0.0' to requirements.txt and redeploy.")
+            st.stop()
+
         import base64
         client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
@@ -580,62 +583,112 @@ elif page == "Style Transfer":
         if content_img and style_img:
             if st.button("Generate Style Transfer Image"):
                 with st.spinner("Generating stylized image..."):
+                    try:
+                        content_bytes = content_img.read()
+                        style_bytes = style_img.read()
 
-                    # ---- Convert both images to base64 ----
-                    content_bytes = content_img.read()
-                    style_bytes = style_img.read()
+                        content_b64 = base64.b64encode(content_bytes).decode()
+                        style_b64 = base64.b64encode(style_bytes).decode()
 
-                    content_b64 = base64.b64encode(content_bytes).decode()
-                    style_b64 = base64.b64encode(style_bytes).decode()
+                        result = client.images.generate(
+                            model="gpt-image-1",
+                            prompt="Blend the content image with the style image into a single stylized artwork.",
+                            size="1024x1024",
+                            image=[
+                                {"data": content_b64},
+                                {"data": style_b64}
+                            ]
+                        )
 
-                    # ---- Call GPT-Image Model ----
-                    result = client.images.generate(
-                        model="gpt-image-1",
-                        prompt="Blend the content image with the style image into a single stylized artwork.",
-                        size="1024x1024",
-                        image=[
-                            {"data": content_b64},
-                            {"data": style_b64}
-                        ]
-                    )
+                        image_base64 = result.data[0].b64_json
+                        final_image = base64.b64decode(image_base64)
 
-                    # ---- Decode result ----
-                    image_base64 = result.data[0].b64_json
-                    final_image = base64.b64decode(image_base64)
+                        st.subheader("🎉 Result")
+                        st.image(final_image, caption="Stylized Output", use_column_width=True)
 
-                    st.subheader("🎉 Result")
-                    st.image(final_image, caption="Stylized Output", use_column_width=True)
+                        st.download_button(
+                            label="Download Stylized Image",
+                            data=final_image,
+                            file_name="style_transfer.png",
+                            mime="image/png"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to generate image: {e}")
 
-                    # ---- Download ----
-                    st.download_button(
-                        label="Download Stylized Image",
-                        data=final_image,
-                        file_name="style_transfer.png",
-                        mime="image/png"
-                    )
 
-                    c_bytes = content_img.read()
-                    s_bytes = style_img.read()
+# ---------- Myth Stories (NEW PAGE) ----------
+elif page == "Myth Stories":
+    st.header("📘 Myth Stories — Artworks & Mythological Narratives")
 
-                    c_b64 = base64.b64encode(c_bytes).decode("utf-8")
-                    s_b64 = base64.b64encode(s_bytes).decode("utf-8")
+    st.write("""
+        Select a mythic figure; the system will:
+        - 🎨 search MET artworks related to the figure
+        - 📚 display the artwork and provide a structured art commentary
+        - 🧿 automatically generate a myth narrative and artwork analysis
+    """)
 
-                    result = openai.images.generate(
-                        model="gpt-image-1",
-                        prompt="Blend these two images: use the first image as content and second image as style.",
-                        images=[c_b64, s_b64],
-                        size="1024x1024"
-                    )
+    # select character
+    character = st.selectbox("Choose a mythic figure", MYTH_LIST)
 
-                    final_b64 = result.data[0].b64_json
-                    final_img = base64.b64decode(final_b64)
+    aliases = generate_aliases(character)
+    st.markdown("**Search aliases (used when querying MET):**")
+    st.write(aliases)
 
-                    st.subheader("🎉 Result")
-                    st.image(final_img, use_column_width=True)
+    if st.button("Search related artworks (MET)"):
+        st.info("Searching MET for related artworks...")
+        all_ids = []
+        p = st.progress(0)
+        for i, a in enumerate(aliases):
+            ids = met_search_ids(a, max_results=40)
+            for oid in ids:
+                if oid not in all_ids:
+                    all_ids.append(oid)
+            p.progress(int((i+1)/len(aliases)*100))
+        p.empty()
+        st.session_state["myth_story_ids"] = all_ids
+        st.success(f"Found {len(all_ids)} artworks. Choose one to generate a story.")
 
-                    st.download_button(
-                        "Download Result",
-                        final_img,
-                        file_name="style_transfer_result.png",
-                        mime="image/png"
-                    )
+    ids = st.session_state.get("myth_story_ids")
+    if ids:
+        st.subheader("🔍 Results (select an artwork)")
+        chosen_id = st.selectbox("Choose artwork (ObjectID)", ids)
+
+        meta = met_get_object_cached(chosen_id)
+        if meta:
+            img_url = meta.get("primaryImageSmall") or meta.get("primaryImage") or ""
+            if img_url:
+                st.image(img_url, caption=meta.get("title"), width=360)
+            st.markdown(f"### 🖼️ {meta.get('title') or 'Untitled'}")
+            st.write(f"**Artist**: {meta.get('artistDisplayName') or 'Unknown'}")
+            st.write(f"**Date**: {meta.get('objectDate') or 'Unknown'}")
+            st.write(f"**Medium**: {meta.get('medium') or 'Unknown'}")
+            st.write(f"[View on MET]({meta.get('objectURL')})")
+            st.markdown("---")
+            st.subheader("📘 Generated Myth Story & Art Commentary")
+
+            if "OPENAI_API_KEY" not in st.session_state:
+                st.warning("Please enter your OpenAI API Key in the sidebar to generate stories.")
+            else:
+                try:
+                    from openai import OpenAI
+                except Exception:
+                    st.error("OpenAI SDK not installed. Add 'openai>=1.0.0' to requirements.txt and redeploy.")
+                    st.stop()
+
+                client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+
+                if st.button("Generate Story & Commentary"):
+                    with st.spinner("Generating story..."):
+                        prompt = f\"\"\"You are an art historian and myth storyteller. Create two sections for exhibition-style text:
+
+Section 1 — Myth Narrative (museum audio-guide tone): tell the myth of the character {character} in a concise, emotive narrative.
+
+Section 2 — Art Commentary: analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. Discuss composition, light, pose, symbols, and the relationship between image and myth. Keep language clear for students and exhibition visitors.
+\"\"\"
+                        try:
+                            resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+                            text_out = resp.output_text
+                        except Exception as e:
+                            text_out = f"[Generation failed: {e}]"
+                        st.markdown(text_out)
+                        st.download_button("Download story (txt)", data=text_out, file_name=f"{character}_story.txt")
