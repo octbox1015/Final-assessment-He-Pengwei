@@ -615,11 +615,10 @@ elif page == "Interactive Tests":
             st.write("Warrior — challenge, mastery. Visual: battle scenes.")
 
 # --------------------
-# Mythic Lineages (Interactive PyVis) - replaced earlier static graph
+# Mythic Lineages (Interactive PyVis)
 # --------------------
 elif page == "Mythic Lineages":
     st.header("Mythic Lineages — Interactive Force-directed Network")
-
     st.write("Interactive network of mythic figures — drag nodes, hover for short bio, click a node to highlight relations.")
 
     RELS = [
@@ -666,45 +665,46 @@ elif page == "Mythic Lineages":
         st.error("The 'pyvis' or 'networkx' package is not installed. Add 'pyvis' and 'networkx' to requirements.txt and redeploy.")
         st.stop()
 
+    # 构建网络
     G = nx.Graph()
-    for a,b,rel in RELS:
+    for a, b, rel in RELS:
         G.add_node(a)
         G.add_node(b)
         G.add_edge(a, b, relation=rel)
 
-nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
+    nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
 
-try:
-    nt.force_atlas_2based()
-except Exception:
-    pass
+    try:
+        nt.force_atlas_2based()
+    except Exception:
+        pass
 
-for n in G.nodes():
-    title = BIO.get(n, "No bio available.")
-    nt.add_node(n, label=n, title=title, value=2)
+    for n in G.nodes():
+        title = BIO.get(n, "No bio available.")
+        nt.add_node(n, label=n, title=title, value=2)
 
-for u, v, data in G.edges(data=True):
-    rel = data.get("relation", "")
-    nt.add_edge(u, v, title=rel, value=1)
+    for u, v, data in G.edges(data=True):
+        rel = data.get("relation", "")
+        nt.add_edge(u, v, title=rel, value=1)
 
-tmpfile = "/tmp/myth_network.html"
+    tmpfile = "/tmp/myth_network.html"
 
-try:
-    nt.show(tmpfile)
-    with open(tmpfile, "r", encoding="utf-8") as f:
-        components_html = f.read()
-    st.components.v1.html(components_html, height=720)
-except Exception as e:
-    st.error("Failed to render interactive network: {}".format(e))
+    try:
+        nt.show(tmpfile)
+        with open(tmpfile, "r", encoding="utf-8") as f:
+            components_html = f.read()
+        st.components.v1.html(components_html, height=720)
+    except Exception as e:
+        st.error("Failed to render interactive network: {}".format(e))
 
-    # 回退显示关系列表
-    parents = {}
-    for a, b, _ in RELS:
-        parents.setdefault(a, []).append(b)
+        # 回退显示关系列表
+        parents = {}
+        for a, b, _ in RELS:
+            parents.setdefault(a, []).append(b)
 
-    for p, children in parents.items():
-        safe_p = p.replace("{", "{{").replace("}", "}}")
-        st.markdown("**{}** → {}".format(safe_p, ", ".join(children)))
+        for p, children in parents.items():
+            safe_p = p.replace("{", "{{").replace("}", "}}")
+            st.markdown("**{}** → {}".format(safe_p, ", ".join(children)))
 
 # --------------------
 # Style Transfer (AI)
