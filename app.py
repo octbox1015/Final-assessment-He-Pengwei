@@ -651,15 +651,18 @@ elif page == "Mythic Lineages":
 
         parents = {}
 for a, b, _ in RELS:
+    # 确保 a 和 b 是字符串
+    a = str(a)
+    b = str(b)
     parents.setdefault(a, []).append(b)
 
 for p, children in parents.items():
-    # 转义大括号，保证 f-string 不报错
+    # 转义大括号
     safe_p = p.replace("{", "{{").replace("}", "}}")
-    safe_children = [c.replace("{", "{{").replace("}", "}}") for c in children]
+    safe_children = [str(c).replace("{", "{{").replace("}", "}}") for c in children]
     
-    # 使用 f-string 输出
-    st.markdown(f"**{safe_p}** → {', '.join(safe_children)}")
+    # 使用 st.markdown 安全输出
+    st.markdown("**{}** → {}".format(safe_p, ", ".join(safe_children)))
 
 # --------------------
 # Style Transfer (AI)
