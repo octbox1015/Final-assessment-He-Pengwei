@@ -693,13 +693,13 @@ elif page == "Mythic Lineages":
         with open(tmpfile, "r", encoding="utf-8") as f:
             components_html = f.read()
         st.components.v1.html(components_html, height=720)
-    except Exception as e:
-        st.error(f"Failed to render interactive network: {e}")
-        parents = {}
-        for a,b,_ in RELS:
-            parents.setdefault(a, []).append(b)
-        for p, children in parents.items():
-            st.markdown(f"**{p}** → " + ", ".join(children))
+   except Exception as e:
+    st.error(f"Failed to render interactive network: {e}")
+    parents = {}
+    for a,b,_ in RELS:
+        parents.setdefault(a, []).append(b)
+    for p, children in parents.items():
+        st.markdown(f"**{p}** → " + ", ".join(children))
 
 # --------------------
 # Style Transfer (AI)
@@ -707,7 +707,6 @@ elif page == "Mythic Lineages":
 if page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
-# 改成安全多行拼接字符串
 st.write(
     "Upload a **content image** and a **style image**.\n"
     "The AI model will generate a new artwork combining both.\n"
