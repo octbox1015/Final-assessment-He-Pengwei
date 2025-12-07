@@ -858,16 +858,23 @@ elif page == "Myth Stories":
         client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
         if st.button("Generate (AI)"):
-            with st.spinner("Generating..."):
-                seed = MYTH_DB.get(character, "")
-                if meta:
-                    prompt = f"""
+    with st.spinner("Generating..."):
+        seed = MYTH_DB.get(character, "")
+        if meta:
+            safe_seed = seed.replace("{", "{{").replace("}", "}}")
+
+            prompt = f"""
 You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two sections:
 
-1) Myth Narrative — a concise, emotive museum audio-guide style narrative about {character}. Base on this seed: {seed}
+1) Myth Narrative — a concise, emotive museum audio-guide style narrative about {character}. 
+Base on this seed: {safe_seed}
 
-2) Art Commentary — analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. Keep language accessible to students and exhibition visitors.
+2) Art Commentary — analyze the selected artwork titled "{meta.get('title')}", 
+by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. 
+Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. 
+Keep language accessible to students and exhibition visitors.
 """
+
                 else:
                     prompt = f"""
 You are an art historian and museum narrator. Produce a concise, emotive museum audio-guide style narrative about {character} based on this seed: {seed}
