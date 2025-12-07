@@ -880,44 +880,79 @@ MYTH_DB = {
     "Sun Wukong": "A monkey born from a stone egg with magical powers."
 }
 
+import streamlit as st
+import openai
+
+# Set your OpenAI API key in Streamlit secrets
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+st.title("🎨 AI Myth & Art Story Generator")
+
+# Character input
+character = st.text_input("Enter a character name", "Sun Wukong")
+
+# Example artwork metadata
+meta = {
+    "title": "Sample Artwork",
+    "artistDisplayName": "Artist Name",
+    "objectDate": "2025"
+}
+
+# Myth seed database
+MYTH_DB = {
+    "Sun Wukong": "A monkey born from a stone egg with magical powers."
+}
+
 if st.button("Generate (AI)"):
     with st.spinner("AI is generating content, please wait..."):
         # Get the myth seed
         seed = MYTH_DB.get(character, "")
-        
-        if meta:
-            # Escape any {} in seed to avoid f-string errors
+        if not seed:
+            st.warning("No myth seed found for this character.")
+        elif not meta:
+            st.warning("No artwork metadata available.")
+        else:
+            # Escape {} in seed to avoid f-string errors
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
-            # Prompt must be inside a string
-prompt = f"""You are an art historian and museum narrator. Using the myth seed and the artwork metadata, produce two clearly separated sections:
+            # AI prompt
+            prompt = f"""You are an art historian and museum narrator. Using the myth seed and artwork metadata, produce two clearly separated sections:
 
---- 
+---
 Myth Narrative:
-Write a concise, emotive museum audio-guide style narrative about {character}. 
-Base it on this seed: {safe_seed}
+Write a concise, emotive museum audio-guide style narrative about {character}.
+Based on this seed: {safe_seed}
 
 ---
 Art Commentary:
-Analyze the selected artwork titled "{meta.get('title')}", by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}. 
-Discuss composition, lighting, pose, symbolism, and how the image relates to the myth. 
+Analyze the selected artwork titled "{meta.get('title')}", by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.
+Discuss composition, lighting, pose, symbolism, and how the image relates to the myth.
 Use language that is accessible to students and exhibition visitors.
 """
 
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant for storytelling and art commentary."},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+            try:
+                # Call OpenAI ChatCompletion API
+                response = openai.ChatCompletion.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant for storytelling and art commentary."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                result = response.choices[0].message["content"]
+            except Exception as e:
+                result = f"[Generation failed: {e}]"
 
-            result = response.choices[0].message["content"]
-
-            # Display the AI-generated content
-            st.markdown("### ✨ AI-Generated Content")
-            st.write(result)
+            # Display Myth Narrative and Art Commentary separately
+            if "---" in result:
+                parts = result.split("---")
+                st.markdown("### ✨ Myth Narrative")
+                st.write(parts[1].strip() if len(parts) > 1 else result)
+                st.markdown("### ✨ Art Commentary")
+                st.write(parts[2].strip() if len(parts) > 2 else "")
+            else:
+                st.markdown("### 📖 Generated Text")
+                st.write(result)
 
             # Download button
             file_name = f"{character}_story.txt"
@@ -928,45 +963,3 @@ Use language that is accessible to students and exhibition visitors.
                 mime="text/plain"
             )
 
-else:
-    # Escape {} in seed to avoid f-string errors
-    safe_seed = seed.replace("{", "{{").replace("}", "}}")
-
-    # AI prompt with separated sections
-    prompt = f"""You are an art historian and museum narrator. Using the myth seed, produce two clearly separated sections:
-
----
-Myth Narrative:
-Write a concise, emotive museum audio-guide style narrative about {character}.
-Based on this seed: {safe_seed}
-
----
-Art Commentary:
-Provide an accessible analysis of the character's story or associated artwork.
-Discuss symbolism, themes, and context in a way suitable for exhibition visitors.
-"""
-
-    try:
-        # Call OpenAI Responses API
-        resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
-        text_out = resp.output_text
-    except Exception as e:
-        text_out = f"[Generation failed: {e}]"
-
-    # Display Myth Narrative and Art Commentary separately
-    if "---" in text_out:
-        parts = text_out.split("---")
-        st.markdown("### ✨ Myth Narrative")
-        st.write(parts[1].strip() if len(parts) > 1 else text_out)
-        st.markdown("### ✨ Art Commentary")
-        st.write(parts[2].strip() if len(parts) > 2 else "")
-    else:
-        st.markdown("### 📖 Generated Text")
-        st.write(text_out)
-
-    # Download button
-    st.download_button(
-        "Download story (txt)",
-        data=text_out,
-        file_name=f"{character}_story.txt"
-    )
