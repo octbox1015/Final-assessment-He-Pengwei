@@ -690,8 +690,7 @@ Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistD
 Discuss composition, light, pose, symbols, and the relationship between image and myth. 
 Keep language clear for students and exhibition visitors.
 """
-
-                        try:
+                     try:
                             resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
                             text_out = resp.output_text
                         except Exception as e:
