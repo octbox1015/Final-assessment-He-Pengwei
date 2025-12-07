@@ -545,7 +545,6 @@ elif page == "Mythic Lineages":
             parents.setdefault(a, []).append(b)
         for p, children in parents.items():
             st.markdown(f"**{p}** → " + ", ".join(children))
-
 # ---------- Style Transfer (NEW PAGE) ----------
 elif page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
@@ -562,12 +561,16 @@ elif page == "Style Transfer":
     if "OPENAI_API_KEY" not in st.session_state:
         st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
     else:
-        import openai, base64
-        openai.api_key = st.session_state["OPENAI_API_KEY"]
+        # ------------------------------------
+        # NEW OPENAI SDK (2024+)  <-- FIXED
+        # ------------------------------------
+        from openai import OpenAI
+        import base64
+        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
         st.subheader("1. Upload Images")
-        content_img = st.file_uploader("Content Image", type=["png","jpg","jpeg"], key="content")
-        style_img = st.file_uploader("Style Image", type=["png","jpg","jpeg"], key="style")
+        content_img = st.file_uploader("Content Image", type=["png", "jpg", "jpeg"], key="content")
+        style_img = st.file_uploader("Style Image", type=["png", "jpg", "jpeg"], key="style")
 
         if content_img:
             st.image(content_img, caption="Content Image", width=300)
@@ -577,6 +580,39 @@ elif page == "Style Transfer":
         if content_img and style_img:
             if st.button("Generate Style Transfer Image"):
                 with st.spinner("Generating stylized image..."):
+
+                    # ---- Convert both images to base64 ----
+                    content_bytes = content_img.read()
+                    style_bytes = style_img.read()
+
+                    content_b64 = base64.b64encode(content_bytes).decode()
+                    style_b64 = base64.b64encode(style_bytes).decode()
+
+                    # ---- Call GPT-Image Model ----
+                    result = client.images.generate(
+                        model="gpt-image-1",
+                        prompt="Blend the content image with the style image into a single stylized artwork.",
+                        size="1024x1024",
+                        image=[
+                            {"data": content_b64},
+                            {"data": style_b64}
+                        ]
+                    )
+
+                    # ---- Decode result ----
+                    image_base64 = result.data[0].b64_json
+                    final_image = base64.b64decode(image_base64)
+
+                    st.subheader("🎉 Result")
+                    st.image(final_image, caption="Stylized Output", use_column_width=True)
+
+                    # ---- Download ----
+                    st.download_button(
+                        label="Download Stylized Image",
+                        data=final_image,
+                        file_name="style_transfer.png",
+                        mime="image/png"
+                    )
 
                     c_bytes = content_img.read()
                     s_bytes = style_img.read()
