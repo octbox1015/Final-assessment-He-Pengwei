@@ -686,7 +686,7 @@ Section 1 — Myth Narrative (museum audio-guide tone):
 Tell the myth of the character {character} in a concise, emotive narrative.
 
 Section 2 — Art Commentary:
-Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}'.
+Analyze the selected artwork titled '{meta.get('title')}', by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.
 Discuss composition, light, pose, symbols, and the relationship between image and myth. 
 Keep language clear for students and exhibition visitors.
 """
