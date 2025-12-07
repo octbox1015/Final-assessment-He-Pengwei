@@ -377,7 +377,8 @@ elif page == "Mythic Art Explorer":
         </script>
         """
         st.components.v1.html(html, height=700, scrolling=True)
-     # --- Relationship explanations (Museum-style) ---
+     
+# --- Relationship explanations (Museum-style) ---
 st.markdown("---")
 
 def local_relation_explanation(a, b, rel):
