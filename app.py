@@ -698,14 +698,15 @@ elif page == "Mythic Lineages":
 if page == "Style Transfer":
     st.header("🎨 AI Style Transfer — Blend two images into new art")
 
-st.write("""
-Upload a **content image** and a **style image**.  
-The AI model will generate a new artwork combining both.  
-Best results examples:
-- Portrait + Van Gogh  
-- Landscape + Ukiyo-e  
-- Statue + Modern painting
-""")
+# 改成安全多行拼接字符串
+st.write(
+    "Upload a **content image** and a **style image**.\n"
+    "The AI model will generate a new artwork combining both.\n"
+    "Best results examples:\n"
+    "- Portrait + Van Gogh\n"
+    "- Landscape + Ukiyo-e\n"
+    "- Statue + Modern painting"
+)
 
 if "OPENAI_API_KEY" not in st.session_state:
     st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
