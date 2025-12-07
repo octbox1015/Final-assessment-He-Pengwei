@@ -694,7 +694,6 @@ try:
     with open(tmpfile, "r", encoding="utf-8") as f:
         components_html = f.read()
     st.components.v1.html(components_html, height=720)
-
 except Exception as e:
     st.error(f"Failed to render interactive network: {e}")
 
