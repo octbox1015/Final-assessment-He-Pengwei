@@ -377,6 +377,74 @@ elif page == "Mythic Art Explorer":
         </script>
         """
         st.components.v1.html(html, height=700, scrolling=True)
+     # --- Relationship explanations (Museum-style) ---
+st.markdown("---")
+
+def local_relation_explanation(a, b, rel):
+    """Generate a concise academic-style explanation (fallback, no OpenAI)."""
+    if rel == "parent":
+        return f"🔹 {a} → {b}\n\n{a} 与 {b} 之间是父系/母系关系。{a} 在神话体系中代表先驱或祖先地位，而 {b} 则作为下一代承担特定领域或职能（例如政治、海洋、冥界或智慧）。"
+    if rel == "conflict":
+        return f"🔹 {a} → {b}\n\n{a} 与 {b} 的关系以冲突或对抗为主。此类叙事通常用于表现英雄或神祇之间的试炼与胜负，反映道德或政治意义。"
+    if rel == "influence":
+        return f"🔹 {a} → {b}\n\n{a} 对 {b} 有显著的叙事或象征性影响：可能是英雄传承、文化范式延续或技艺/象征的传递。"
+    if rel == "associate":
+        return f"🔹 {a} → {b}\n\n{a} 与 {b} 为关联关系，常见于神祇与其神域、同族或长期并列的形象搭配。"
+    return f"🔹 {a} → {b}\n\n关系类型：{rel}. 该关系在神话传统中具有特定含义（父系、冲突、影响或从属），可用于理解叙事结构与象征对应。"
+
+# Build list of explanations from RELS (RELS assumed defined earlier in Mythic Lineages)
+try:
+    raw_items = [{"a": a, "b": b, "rel": rel} for a, b, rel in RELS]
+except Exception:
+    # If RELS is not accessible (unlikely), create empty
+    raw_items = []
+
+# UI: button to trigger generation
+if st.button("Explain Mythic Relationships (Museum style)"):
+    with st.spinner("Generating relationship explanations..."):
+        explanations = []
+        # If OpenAI key available, attempt to use model to refine explanations
+        if "OPENAI_API_KEY" in st.session_state and st.session_state["OPENAI_API_KEY"]:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+                # Prepare compact data for the model
+                items_text = "\n".join([f"{i+1}. {it['a']} -> {it['b']} (relation: {it['rel']})" for i, it in enumerate(raw_items)])
+                prompt = f\"\"\"You are an art historian writing museum-label style explanations. Given the following mythic relations, produce a clear, academic museum-text explanation for each item. Use one paragraph per relation. Keep each paragraph concise (2-4 sentences), formal and accessible to museum visitors. Use the pattern:
+
+🔹 A → B
+
+Short academic explanation...
+
+Data:
+{items_text}
+
+Return only the explanations in plain text, each starting with the '🔹' bullet followed by the relation line.\"\"\"
+                resp = client.responses.create(model="gpt-4.1-mini", input=prompt)
+                refined = resp.output_text or ""
+                if "🔹" in refined:
+                    parts = [p.strip() for p in refined.split("🔹") if p.strip()]
+                    for p in parts:
+                        explanations.append("🔹 " + p)
+                else:
+                    # if the model returned a block without the bullet, keep whole text as single item
+                    explanations = [refined]
+            except Exception as e:
+                st.warning(f"OpenAI refinement failed: {e}. Using local templates.")
+                explanations = [local_relation_explanation(it['a'], it['b'], it['rel']) for it in raw_items]
+        else:
+            # No OpenAI: use local templates
+            explanations = [local_relation_explanation(it['a'], it['b'], it['rel']) for it in raw_items]
+
+        # Display explanations in the chosen academic format
+        st.subheader("Mythic Relationship Explanations (Museum-style)")
+        out_text = ""
+        for ex in explanations:
+            st.markdown(ex.replace("\n\n", "\n\n"))
+            out_text += ex + "\n\n"
+
+        # Allow download
+        st.download_button("Download relationship explanations (txt)", data=out_text, file_name="mythic_relationships.txt")
 
 # --------------------
 # Page: Art Data
