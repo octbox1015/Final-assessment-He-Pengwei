@@ -672,34 +672,39 @@ elif page == "Mythic Lineages":
         G.add_node(b)
         G.add_edge(a, b, relation=rel)
 
-    nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
-    try:
-        nt.force_atlas_2based()
-    except Exception:
-        # older pyvis might not have force_atlas_2based
-        pass
+nt = Network(height="700px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
+try:
+    nt.force_atlas_2based()
+except Exception:
+    # older pyvis might not have force_atlas_2based
+    pass
 
-    for n in G.nodes():
-        title = BIO.get(n, "No bio available.")
-        nt.add_node(n, label=n, title=title, value=2)
+for n in G.nodes():
+    title = BIO.get(n, "No bio available.")
+    nt.add_node(n, label=n, title=title, value=2)
 
-    for u, v, data in G.edges(data=True):
-        rel = data.get("relation", "")
-        nt.add_edge(u, v, title=rel, value=1)
+for u, v, data in G.edges(data=True):
+    rel = data.get("relation", "")
+    nt.add_edge(u, v, title=rel, value=1)
 
-    tmpfile = "/tmp/myth_network.html"
+tmpfile = "/tmp/myth_network.html"
+
 try:
     nt.show(tmpfile)
     with open(tmpfile, "r", encoding="utf-8") as f:
         components_html = f.read()
     st.components.v1.html(components_html, height=720)
+
 except Exception as e:
     st.error(f"Failed to render interactive network: {e}")
+
     parents = {}
     for a, b, _ in RELS:
         parents.setdefault(a, []).append(b)
+
     for p, children in parents.items():
-        st.markdown(f"**{p}** → " + ", ".join(children))
+        safe_p = p.replace("{", "{{").replace("}", "}}")
+        st.markdown(f"**{safe_p}** → {', '.join(children)}")
 
 # --------------------
 # Style Transfer (AI)
