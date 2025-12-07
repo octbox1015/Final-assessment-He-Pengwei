@@ -22,6 +22,13 @@ import json
 from typing import List, Dict
 import plotly.express as px
 
+MYTH_DB = {
+    "Zeus": "Zeus, king of the Olympian gods, wielding thunderbolts and ruling the sky, embodies authority and divine law.",
+    "Athena": "Athena, goddess of wisdom and war strategy, often depicted with an owl and armor, guiding heroes with intellect.",
+    "Medusa": "Medusa, the Gorgon whose gaze turns mortals to stone, represents both terror and tragic beauty in myth.",
+    "Perseus": "Perseus, the hero who defeated Medusa and saved Andromeda, exemplifies courage and cleverness."
+}
+
 # Basic page config
 st.set_page_config(page_title="Mythic Art Explorer", layout="wide")
 
