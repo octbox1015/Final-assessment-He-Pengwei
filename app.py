@@ -389,16 +389,16 @@ elif page == "Mythic Art Explorer":
 st.markdown("---")
 
 def local_relation_explanation(a, b, rel):
-    """Generate a concise academic-style explanation (fallback, no OpenAI)."""
+    """Generate a concise academic-style explanation (fallback, no OpenAI), in English."""
     if rel == "parent":
-        return f"🔹 {a} → {b}\n\n{a} 与 {b} 之间是父系/母系关系。{a} 在神话体系中代表先驱或祖先地位，而 {b} 则作为下一代承担特定领域或职能（例如政治、海洋、冥界或智慧）。"
+        return f"🔹 {a} → {b}\n\n{a} and {b} share a parent-child relationship. {a} represents a progenitor or ancestral figure in myth, while {b} inherits specific domains or roles (e.g., governance, the sea, the underworld, or wisdom)."
     if rel == "conflict":
-        return f"🔹 {a} → {b}\n\n{a} 与 {b} 的关系以冲突或对抗为主。此类叙事通常用于表现英雄或神祇之间的试炼与胜负，反映道德或政治意义。"
+        return f"🔹 {a} → {b}\n\nThe relationship between {a} and {b} is primarily adversarial or conflictual. Such narratives often highlight trials, contests, or moral lessons within the mythic tradition."
     if rel == "influence":
-        return f"🔹 {a} → {b}\n\n{a} 对 {b} 有显著的叙事或象征性影响：可能是英雄传承、文化范式延续或技艺/象征的传递。"
+        return f"🔹 {a} → {b}\n\n{a} exerts notable narrative or symbolic influence on {b}, representing the transmission of heroism, cultural patterns, or skills and symbols."
     if rel == "associate":
-        return f"🔹 {a} → {b}\n\n{a} 与 {b} 为关联关系，常见于神祇与其神域、同族或长期并列的形象搭配。"
-    return f"🔹 {a} → {b}\n\n关系类型：{rel}. 该关系在神话传统中具有特定含义（父系、冲突、影响或从属），可用于理解叙事结构与象征对应。"
+        return f"🔹 {a} → {b}\n\n{a} and {b} share an associative relationship, often appearing together as deities of similar domains, kin, or recurring paired figures in myth."
+    return f"🔹 {a} → {b}\n\nRelationship type: {rel}. This connection carries specific meaning within mythic traditions (parentage, conflict, influence, or association) and helps interpret narrative structures and symbolic correspondences."
 
 # Build list of explanations from RELS (RELS assumed defined earlier in Mythic Lineages)
 try:
@@ -413,13 +413,17 @@ if st.button("Explain Mythic Relationships (Museum style)"):
         explanations = []
         # If OpenAI key available, attempt to use model to refine explanations
         if "OPENAI_API_KEY" in st.session_state and st.session_state["OPENAI_API_KEY"]:
-            try:
-    from openai import OpenAI
-    client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=st.session_state["OPENAI_API_KEY"])
 
-    # Prepare compact data for the model
-    items_text = "\n".join([f"{i+1}. {it['a']} -> {it['b']} (relation: {it['rel']})"
-                            for i, it in enumerate(raw_items)])
+        # Prepare compact data for the model
+        items_text = "\n".join([
+            f"{i+1}. {it['a']} -> {it['b']} (relation: {it['rel']})"
+            for i, it in enumerate(raw_items)
+        ])
+    except Exception as e:
+        st.warning(f"OpenAI initialization failed: {e}")
 
     prompt = f"""
 You are an art historian writing museum-label style explanations. 
