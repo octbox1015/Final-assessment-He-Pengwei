@@ -773,6 +773,10 @@ if st.button("Generate (AI)"):
         else:
             safe_seed = seed.replace("{", "{{").replace("}", "}}")
 
+            title = meta.get("title", "Untitled") if meta else "Untitled"
+            artist = meta.get("artistDisplayName", "Unknown") if meta else "Unknown"
+            date = meta.get("objectDate", "—") if meta else "—"
+
             prompt = (
                 f"You are an art historian and museum narrator. Using the myth seed and artwork metadata, "
                 f"produce two clearly separated sections:\n\n"
@@ -782,8 +786,8 @@ if st.button("Generate (AI)"):
                 f"Based on this seed: {safe_seed}\n\n"
                 f"---\n"
                 f"Art Commentary:\n"
-                f"Analyze the selected artwork titled \"{meta.get('title')}\", "
-                f"by {meta.get('artistDisplayName')}, dated {meta.get('objectDate')}.\n"
+                f"Analyze the selected artwork titled \"{title}\", "
+                f"by {artist}, dated {date}.\n"
                 f"Discuss composition, lighting, pose, symbolism, and how the image relates to the myth.\n"
                 f"Use language that is accessible to students and exhibition visitors.\n"
             )
