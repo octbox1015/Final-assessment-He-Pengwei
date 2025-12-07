@@ -704,7 +704,7 @@ except Exception as e:
 
     for p, children in parents.items():
         safe_p = p.replace("{", "{{").replace("}", "}}")
-        st.markdown(f"**{safe_p}** → {', '.join(children)}")
+        st.markdown("**{}** → {}".format(safe_p, ", ".join(children)))
 
 # --------------------
 # Style Transfer (AI)
