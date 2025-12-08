@@ -1,134 +1,259 @@
 # final_app.py
 """
-Mythic Art Explorer — Version C (Full / "Super" — Tag + Medium Filter + Visual Analytics + Safe OpenAI via secrets)
+Mythic Art Explorer — Multi-Museum (MET + Harvard + Cleveland)
 Features:
- - MET API search (multi-keyword)
- - Tag + Medium combined filtering (recommended)
- - Myth Stories (3-part AI generation: Overview / Narrative / Artwork Commentary)
- - Visual Analytics (year distribution, mediums, culture, size scatter, dominant color estimation)
- - Safe OpenAI access via Streamlit secrets: st.secrets["OPENAI_API_KEY"]
- - Graceful fallbacks if OpenAI SDK or key missing
+ - Multi-source search: MET (no key), Harvard (requires key), Cleveland (open)
+ - Hybrid filtering (tag-strict OR medium/title/culture heuristics)
+ - Unified metadata normalization across sources
+ - AI museum-text generation (Overview / Narrative / Artwork Commentary) via OpenAI (safe via st.secrets)
+ - Visual analytics: year distribution, mediums, cultures, size scatter, dominant color estimation
+ - Safe behavior: graceful fallbacks if Harvard/OpenAI keys missing
 Notes:
- - Add to requirements.txt: streamlit requests plotly pillow numpy openai
- - To enable OpenAI, add to Streamlit secrets:
-     OPENAI_API_KEY = "sk-...your key..."
+ - Put keys in Streamlit secrets for security:
+   st.secrets["OPENAI_API_KEY"] = "sk-..."
+   st.secrets["HARVARD_API_KEY"] = "demo-or-your-key"
 """
 
 import io
-import math
 import time
 import json
-import collections
-from typing import List, Dict, Optional, Tuple
-
+import math
 import requests
 import streamlit as st
 import plotly.express as px
-
-# Image processing
+from typing import List, Dict, Optional, Tuple
+from collections import Counter
 from PIL import Image
 import numpy as np
-from collections import Counter
 
 # -------------------------
 # Page config
 # -------------------------
-st.set_page_config(page_title="Mythic Art Explorer — Final", layout="wide")
-st.title("🧿 Mythic Art Explorer — Final")
+st.set_page_config(page_title="Mythic Art Explorer", layout="wide")
+st.title("🧿 Mythic Art Explorer — MET + Harvard + Cleveland")
 
 # -------------------------
-# MET API endpoints + helpers
+# Utilities & caching
+# -------------------------
+@st.cache_data(ttl=60*60*24, show_spinner=False)
+def safe_get(url, params=None, timeout=12):
+    try:
+        r = requests.get(url, params=params, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+@st.cache_data(ttl=60*60*24, show_spinner=False)
+def fetch_bytes(url, timeout=10):
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        return r.content
+    except Exception:
+        return None
+
+# -------------------------
+# MET API helpers (no key)
 # -------------------------
 MET_SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1/search"
 MET_OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{}"
 
-@st.cache_data(ttl=60*60*24, show_spinner=False)
 def met_search_ids(q: str, max_results: int = 200) -> List[int]:
     try:
-        r = requests.get(MET_SEARCH, params={"q": q, "hasImages": True}, timeout=12)
-        r.raise_for_status()
-        ids = r.json().get("objectIDs") or []
+        res = safe_get(MET_SEARCH, params={"q": q, "hasImages": True})
+        ids = res.get("objectIDs") or []
         return ids[:max_results]
-    except Exception:
+    except:
         return []
 
-@st.cache_data(ttl=60*60*24, show_spinner=False)
-def met_get_object_cached(object_id: int) -> Dict:
+def met_get_object(oid: int) -> Optional[Dict]:
     try:
-        r = requests.get(MET_OBJECT.format(object_id), timeout=12)
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return {}
+        data = safe_get(MET_OBJECT.format(oid))
+        return data
+    except:
+        return None
 
 # -------------------------
-# Filtering: Tag (strict) + Medium (medium)
+# Harvard Art Museums API (requires key)
+# docs: https://www.harvardartmuseums.org/collections/api
 # -------------------------
-STRICT_MYTH_TAGS = {
-    "Greek Mythology",
-    "Zeus", "Hera", "Athena", "Apollo", "Artemis", "Aphrodite",
-    "Hermes", "Poseidon", "Hades", "Demeter", "Dionysus",
-    "Perseus", "Medusa", "Gorgon", "Minotaur",
-    "Theseus", "Heracles", "Hercules", "Achilles",
-    "Narcissus", "Orpheus", "Pan"
+HARVARD_BASE = "https://api.harvardartmuseums.org/object"
+
+def harvard_search(q: str, apikey: str, max_results: int = 100) -> List[Dict]:
+    out = []
+    page = 1
+    per_page = 50
+    collected = 0
+    while collected < max_results:
+        params = {"apikey": apikey, "q": q, "size": per_page, "page": page}
+        j = safe_get(HARVARD_BASE, params=params)
+        if not j:
+            break
+        records = j.get("records") or []
+        for r in records:
+            out.append(r)
+            collected += 1
+            if collected >= max_results:
+                break
+        if not j.get("info", {}).get("next"):
+            break
+        page += 1
+    return out
+
+def normalize_harvard(rec: Dict) -> Dict:
+    # Convert Harvard record to unified schema
+    return {
+        "source": "Harvard",
+        "objectID": rec.get("id"),
+        "title": rec.get("title"),
+        "artist": ", ".join([p.get("name") for p in (rec.get("people") or [])]) if rec.get("people") else rec.get("people"),
+        "date": rec.get("dated"),
+        "culture": rec.get("culture"),
+        "medium": rec.get("medium"),
+        "dimensions": rec.get("dimensions"),
+        "primaryImage": rec.get("primaryimageurl"),
+        "primaryImageSmall": rec.get("primaryimageurl"),
+        "objectURL": rec.get("url"),
+        "tags": [{"term": t} for t in ([rec.get("classification")] if rec.get("classification") else [])],  # rough
+        "raw": rec
+    }
+
+# -------------------------
+# Cleveland Museum Open Access API (no key)
+# docs: https://openaccess-api.clevelandart.org/
+# -------------------------
+CLEVELAND_SEARCH = "https://openaccess-api.clevelandart.org/api/artworks"
+
+def cleveland_search(q: str, max_results: int = 100) -> List[Dict]:
+    out = []
+    page = 1
+    per_page = 50
+    collected = 0
+    while collected < max_results:
+        params = {"q": q, "limit": per_page, "page": page}
+        j = safe_get(CLEVELAND_SEARCH, params=params)
+        if not j:
+            break
+        records = j.get("data") or []
+        for r in records:
+            out.append(r)
+            collected += 1
+            if collected >= max_results:
+                break
+        if not records:
+            break
+        page += 1
+    return out
+
+def normalize_cleveland(rec: Dict) -> Dict:
+    # Convert Cleveland record to unified schema
+    image = None
+    if rec.get("images"):
+        first = rec.get("images")[0]
+        image = first.get("publicCaption") or first.get("iiif_base")
+        # prefer iiif image
+        if first.get("iiif_base"):
+            image = first.get("iiif_base") + "/full/400,/0/default.jpg"
+    tags = rec.get("tags") or []
+    return {
+        "source": "Cleveland",
+        "objectID": rec.get("id"),
+        "title": rec.get("title"),
+        "artist": rec.get("creators")[0].get("description") if rec.get("creators") else None,
+        "date": rec.get("creation_date"),
+        "culture": rec.get("culture"),
+        "medium": rec.get("technique") or rec.get("classification"),
+        "dimensions": rec.get("measurements"),
+        "primaryImage": image,
+        "primaryImageSmall": image,
+        "objectURL": rec.get("url"),
+        "tags": [{"term": t.get("term")} for t in tags if isinstance(t, dict)],
+        "raw": rec
+    }
+
+# -------------------------
+# MET normalization
+# -------------------------
+def normalize_met(meta: Dict) -> Dict:
+    return {
+        "source": "MET",
+        "objectID": meta.get("objectID"),
+        "title": meta.get("title"),
+        "artist": meta.get("artistDisplayName"),
+        "date": meta.get("objectDate"),
+        "culture": meta.get("culture"),
+        "medium": meta.get("medium"),
+        "dimensions": meta.get("dimensions"),
+        "primaryImage": meta.get("primaryImage"),
+        "primaryImageSmall": meta.get("primaryImageSmall"),
+        "objectURL": meta.get("objectURL"),
+        "tags": meta.get("tags") or [],
+        "raw": meta
+    }
+
+# -------------------------
+# Hybrid filtering (tag-strict OR heuristics)
+# -------------------------
+STRICT_TAGS = {
+    "Greek Mythology", "Zeus", "Athena", "Perseus", "Medusa", "Heracles", "Hercules", "Theseus", "Orpheus",
+    "Aphrodite", "Apollo", "Artemis", "Hermes", "Poseidon", "Hades", "Demeter", "Dionysus"
 }
 
-CHAR_KEYWORDS = [
-    "zeus", "hera", "athena", "apollo", "artemis", "aphrodite",
-    "hermes", "poseidon", "medusa", "perseus", "heracles",
-    "theseus", "gorgon", "minotaur"
-]
+CHAR_KEYWORDS = [k.lower() for k in ["Zeus","Athena","Perseus","Medusa","Heracles","Theseus","Apollo","Artemis","Aphrodite","Hermes","Poseidon","Hades","Demeter","Dionysus","Orpheus"]]
+MEDIUM_KEYWORDS = ["greek","hellenistic","classical","roman","amphora","vase","attic","terracotta","marble","bronze"]
 
-MEDIUM_KEYWORDS = [
-    "greek", "attic", "hellenistic", "roman", "classical",
-    "terracotta", "vase", "krater", "amphora", "marble", "bronze"
-]
-
-def passes_strict_tag_filter(meta: Dict) -> bool:
-    tags = meta.get("tags") or []
+def has_strict_tag(rec: Dict) -> bool:
+    tags = rec.get("tags") or []
     for t in tags:
         if isinstance(t, dict):
-            term = t.get("term")
-            if term and term in STRICT_MYTH_TAGS:
-                return True
+            term = t.get("term") or t.get("name")
+        else:
+            term = t
+        if term and term in STRICT_TAGS:
+            return True
     return False
 
-def passes_medium_filter(meta: Dict) -> bool:
-    title = (meta.get("title") or "").lower()
-    culture = (meta.get("culture") or "").lower()
-    period = (meta.get("period") or "").lower()
-    medium = (meta.get("medium") or "").lower()
-    objname = (meta.get("objectName") or "").lower()
-
+def medium_title_heuristic(rec: Dict) -> bool:
+    title = (rec.get("title") or "").lower()
+    culture = (rec.get("culture") or "").lower()
+    medium = (rec.get("medium") or "").lower()
+    # keywords in title or culture/medium
     if any(k in title for k in CHAR_KEYWORDS):
         return True
-    if any(k in objname for k in CHAR_KEYWORDS):
-        return True
-    if "greek" in culture or "hellenistic" in culture or "classical" in period:
+    if any(k in culture for k in MEDIUM_KEYWORDS):
         return True
     if any(k in medium for k in MEDIUM_KEYWORDS):
         return True
     return False
 
-def is_greek_myth_artwork(meta: Dict) -> bool:
-    # Final combined filter: strict tag OR medium heuristic
-    return passes_strict_tag_filter(meta) or passes_medium_filter(meta)
+def passes_hybrid_filter(rec: Dict) -> bool:
+    # rec is normalized
+    if has_strict_tag(rec):
+        return True
+    if medium_title_heuristic(rec):
+        return True
+    # optionally reject obvious non-art categories
+    classification = (rec.get("raw") or {}).get("classification") or ""
+    department = (rec.get("raw") or {}).get("department") or ""
+    reject_terms = ["costume", "photograph", "textile", "musical", "arms and armor", "jewelry"]
+    if any(r in str(classification).lower() for r in reject_terms) or any(r in str(department).lower() for r in reject_terms):
+        return False
+    return False
 
 # -------------------------
-# OpenAI wrapper (safe)
+# OpenAI wrapper (safe via st.secrets)
 # -------------------------
 def openai_available() -> bool:
     try:
-        # prefer reading key from st.secrets for safety
         _ = st.secrets["OPENAI_API_KEY"]
-        from openai import OpenAI  # type: ignore
         return True
     except Exception:
-        return False
+        return bool(st.session_state.get("OPENAI_API_KEY"))
 
 def get_openai_client():
     try:
-        from openai import OpenAI  # type: ignore
+        from openai import OpenAI
     except Exception:
         return None
     api_key = st.secrets.get("OPENAI_API_KEY") if "OPENAI_API_KEY" in st.secrets else st.session_state.get("OPENAI_API_KEY")
@@ -139,514 +264,431 @@ def get_openai_client():
 def ai_generate_text(prompt: str, model: str = "gpt-4.1-mini", max_tokens: int = 400) -> str:
     client = get_openai_client()
     if not client:
-        raise RuntimeError("OpenAI client not available or API key missing.")
+        raise RuntimeError("OpenAI client not available")
     resp = client.responses.create(model=model, input=prompt)
     return resp.output_text or ""
 
 # -------------------------
-# Small utilities: image color, size parsing
+# Image helpers: dominant color, simple size parse
 # -------------------------
-def fetch_image_bytes(url: str, timeout: int = 8) -> Optional[bytes]:
-    try:
-        r = requests.get(url, timeout=timeout)
-        r.raise_for_status()
-        return r.content
-    except Exception:
-        return None
-
-def dominant_color_from_bytes(img_bytes: bytes, resize: int = 64) -> str:
+def dominant_color_from_bytes(img_bytes: bytes, resize=64) -> str:
     try:
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
         img = img.resize((resize, resize))
-        arr = np.array(img).reshape((-1, 3))
-        # Count most common RGB tuple
-        counts = Counter([tuple(c) for c in arr])
-        color = counts.most_common(1)[0][0]  # (r,g,b)
-        return '#%02x%02x%02x' % color
+        arr = np.array(img).reshape((-1,3))
+        vals, counts = np.unique(arr.reshape(-1,3), axis=0, return_counts=True)
+        idx = counts.argmax()
+        rgb = tuple(vals[idx].tolist())
+        return '#%02x%02x%02x' % rgb
     except Exception:
-        return "#777777"
+        return "#888888"
 
-def extract_dimensions(meta: Dict) -> Tuple[Optional[float], Optional[float]]:
-    """
-    Try to extract numeric width & height in centimeters from dimensions string if present.
-    This is heuristic and will often be None.
-    """
-    dims = meta.get("dimensions") or meta.get("measurements") or ""
+def extract_dimensions_simple(meta: Dict) -> Tuple[Optional[float], Optional[float]]:
+    dims = meta.get("dimensions") or ""
     if not dims or not isinstance(dims, str):
-        return (None, None)
-    s = dims.replace("cm", "").replace("×", "x").replace("—", "x")
-    # find numbers
-    nums = []
-    for part in s.replace(",", " ").split():
-        try:
-            val = float(part)
-            nums.append(val)
-        except:
-            # strip trailing punctuation
+        # try alternative fields
+        raw = meta.get("raw") or {}
+        if isinstance(raw, dict):
+            dims = raw.get("dimensions") or raw.get("measurements") or ""
+    # naive parse, look for "cm"
+    try:
+        s = dims.replace("cm", " ").replace("×", "x").replace("—", "x")
+        parts = []
+        for tok in s.replace(",", " ").split():
             try:
-                val = float(part.strip(".,;"))
-                nums.append(val)
+                parts.append(float(tok))
             except:
                 continue
-    if len(nums) >= 2:
-        return (nums[0], nums[1])
+        if len(parts) >= 2:
+            return (parts[0], parts[1])
+    except:
+        pass
     return (None, None)
 
 # -------------------------
-# UI: Sidebar / OpenAI key
+# Sidebar: keys & settings
 # -------------------------
-st.sidebar.title("Settings & OpenAI")
-st.sidebar.markdown("You can place your OpenAI API key in Streamlit secrets (recommended) or paste it here (session only).")
+st.sidebar.title("Settings")
+st.sidebar.markdown("Place API keys in Streamlit Secrets for production (recommended). You can also paste them for this session.")
+
 if "OPENAI_API_KEY" not in st.session_state:
     st.session_state["OPENAI_API_KEY"] = None
+if "HARVARD_API_KEY" not in st.session_state:
+    st.session_state["HARVARD_API_KEY"] = None
 
-key_input = st.sidebar.text_input("OpenAI API Key (session)", type="password")
-if st.sidebar.button("Save key to session"):
-    if key_input:
-        st.session_state["OPENAI_API_KEY"] = key_input
-        st.sidebar.success("Saved to session. For production, put your key in Streamlit secrets.")
+harv_key_input = st.sidebar.text_input("Harvard API key (session)", type="password")
+if st.sidebar.button("Save Harvard key to session"):
+    if harv_key_input:
+        st.session_state["HARVARD_API_KEY"] = harv_key_input
+        st.sidebar.success("Harvard key saved to session.")
     else:
-        st.sidebar.warning("Provide an API key to save to session.")
+        st.sidebar.warning("Provide a key.")
 
-if openai_available() or st.session_state.get("OPENAI_API_KEY"):
-    st.sidebar.success("OpenAI ready" if openai_available() else "OpenAI available via session key")
-else:
-    st.sidebar.info("OpenAI not configured. AI features will be disabled until you add a key.")
+openai_key_input = st.sidebar.text_input("OpenAI key (session)", type="password")
+if st.sidebar.button("Save OpenAI key to session"):
+    if openai_key_input:
+        st.session_state["OPENAI_API_KEY"] = openai_key_input
+        st.sidebar.success("OpenAI key saved to session.")
+    else:
+        st.sidebar.warning("Provide a key.")
+
+st.sidebar.markdown("---")
+page = st.sidebar.selectbox("Page", ["Home", "Explorer", "Stories", "Visual Analytics", "Lineages", "About"])
 
 # -------------------------
-# Main navigation
-# -------------------------
-page = st.sidebar.selectbox("Page", [
-    "Home", "Mythic Art Explorer (A)", "Myth Stories (D)", "Visual Analytics", "Mythic Lineages", "About"
-])
-
-# -------------------------
-# Home
+# Page: Home
 # -------------------------
 if page == "Home":
-    st.header("Welcome — Mythic Art Explorer (Final C)")
+    st.header("Welcome")
     st.write("""
-        This application demonstrates:
-        - API-driven retrieval from the MET Collection,
-        - Tag + medium filtering to reliably surface Greek myth artworks,
-        - AI-generated museum text (if OpenAI key provided),
-        - Visual analytics including dominant color estimation and distribution charts.
-    """)
-    st.markdown("**Quick start**")
-    st.write("- Go to **Mythic Art Explorer (A)** to fetch many candidates (medium-filtered).")
-    st.write("- Go to **Myth Stories (D)** for tag-precise curated selection and 3-part AI text.")
-    st.write("- Use **Visual Analytics** to analyze the dataset you fetched.")
-    st.write("Place your OpenAI key in Streamlit secrets: `.streamlit/secrets.toml` or paste in sidebar (session only).")
+This project searches museum APIs (MET, Harvard, Cleveland) for Greek & Roman myth-related artworks,
+applies a hybrid filtering strategy to ensure both precision and recall, and provides tools for
+AI-powered museum texts and visual analytics.
+""")
+    st.write("Workflow: Explorer → (select artworks) → Stories (curated + AI) → Visual Analytics")
 
 # -------------------------
-# Mythic Art Explorer (A) — broad + medium filter
+# Page: Explorer (multi-source, medium filter)
 # -------------------------
-elif page == "Mythic Art Explorer (A)":
-    st.header("Mythic Art Explorer — Broad search + Medium Filter (A)")
-    st.write("This page uses multiple aliases and a medium-level heuristic filter to find likely Greek myth artworks (higher recall).")
-    # selection
-    default_choices = sorted(CHAR_KEYWORDS + ["Athena", "Zeus", "Perseus", "Medusa", "Theseus", "Heracles"])
-    character = st.selectbox("Choose character (alias search)", default_choices, index=default_choices.index("athena") if "athena" in default_choices else 0)
-    st.write("Search aliases (automatically generated):")
-    def gen_aliases(name: str):
-        name = name.strip()
-        mapping = {"Athena":["Pallas Athena","Minerva"], "Zeus":["Jupiter"], "Perseus":["Perseus"], "Medusa":["Medusa","Gorgon"]}
-        aliases = [name]
-        aliases += mapping.get(name.capitalize(), [])
-        aliases += [f"{name} myth", f"{name} greek", f"{name} mythology"]
-        # dedupe
-        out=[]; seen=set()
-        for a in aliases:
-            if a and a not in seen:
-                seen.add(a); out.append(a)
-        return out
-    aliases = gen_aliases(character)
-    st.write(", ".join(aliases))
-    max_per_alias = st.slider("Max results per alias", 20, 600, 120, step=10)
+elif page == "Explorer":
+    st.header("Explorer — Multi-source search (medium recall, good precision)")
+    character = st.text_input("Search term (person/keyword)", value="Athena")
+    max_per_source = st.slider("Max per source", 20, 200, 100, step=10)
+    use_met = st.checkbox("Search MET", True)
+    use_harvard = st.checkbox("Search Harvard", True)
+    use_cleveland = st.checkbox("Search Cleveland", True)
 
-    if st.button("Fetch & Filter (A)"):
-        all_ids = []
-        p = st.progress(0)
-        for i, a in enumerate(aliases):
-            ids = met_search_ids(a, max_results=max_per_alias)
-            if ids:
-                for oid in ids:
-                    if oid not in all_ids:
-                        all_ids.append(oid)
-            p.progress(int((i+1)/len(aliases)*100))
-        p.empty()
-        st.info(f"Found {len(all_ids)} raw candidate IDs from MET. Fetching metadata and applying medium filter...")
+    if st.button("Search across sources"):
+        unified = []
+        progress = st.progress(0)
+        sources = []
+        if use_met:
+            sources.append("MET")
+            # search MET for several aliases
+            aliases = [character, f"{character} myth", f"{character} greek", character + " vase"]
+            met_ids = []
+            for a in aliases:
+                ids = met_search_ids(a, max_results=max_per_source)
+                if ids:
+                    for i in ids:
+                        if i not in met_ids:
+                            met_ids.append(i)
+            # fetch MET objects
+            for i, oid in enumerate(met_ids):
+                m = met_get_object(oid)
+                if m:
+                    unified.append(normalize_met(m))
+                progress.progress(min(100, int((len(unified)/ (max_per_source*3 + 1))*100)))
+            time.sleep(0.1)
 
-        thumbs = []
-        p2 = st.progress(0)
-        total = max(1, len(all_ids))
-        for i, oid in enumerate(all_ids):
-            meta = met_get_object_cached(oid)
-            if not meta:
-                continue
-            if is_greek_myth_artwork(meta):
-                thumb = meta.get("primaryImageSmall") or meta.get("primaryImage") or (meta.get("additionalImages") or [None])[0]
-                thumbs.append({"id": oid, "meta": meta, "thumb": thumb})
-            if i % 20 == 0:
-                p2.progress(min(100, int((i+1)/total*100)))
-            time.sleep(0.002)
-        p2.empty()
-        st.session_state["explorer_thumbs"] = thumbs
-        st.success(f"{len(thumbs)} filtered works ready (stored in session).")
-
-    thumbs = st.session_state.get("explorer_thumbs", [])
-    if not thumbs:
-        st.info("No results yet. Use Fetch & Filter (A).")
-    else:
-        st.write(f"Displaying {len(thumbs)} works.")
-        cols = st.columns(3)
-        for idx, rec in enumerate(thumbs):
-            with cols[idx % 3]:
-                meta = rec["meta"]
-                if rec["thumb"]:
-                    try:
-                        st.image(rec["thumb"], use_column_width=True)
-                    except:
-                        st.write("[Image failed to load]")
-                st.markdown(f"**{meta.get('title','Untitled')}**")
-                st.write(f"{meta.get('artistDisplayName','Unknown')} • {meta.get('objectDate','')}")
-                st.write(f"*{meta.get('medium','')}*")
-                st.write(f"[Open on MET]({meta.get('objectURL')})")
-                if st.button(f"Select {rec['id']}", key=f"explore_sel_{rec['id']}"):
-                    st.session_state["selected_explorer"] = rec
-                    st.success("Selected!")
-
-    if "selected_explorer" in st.session_state:
-        rec = st.session_state["selected_explorer"]
-        meta = rec["meta"]
-        st.markdown("---")
-        st.subheader("Selected artwork (Explorer)")
-        if meta.get("primaryImage"):
-            st.image(meta.get("primaryImage"), width=360)
-        st.markdown(f"**{meta.get('title','Untitled')}**")
-        st.write(f"{meta.get('artistDisplayName','Unknown')} • {meta.get('objectDate','')}")
-        st.write(meta.get('medium',''))
-        st.write(f"[Open on MET]({meta.get('objectURL')})")
-        # AI label generation
-        if st.button("Generate AI museum label (Explorer)"):
-            if not openai_available() and not st.session_state.get("OPENAI_API_KEY"):
-                st.warning("No OpenAI key available. Put it in Streamlit secrets or sidebar session input.")
+        if use_harvard:
+            sources.append("Harvard")
+            harv_key = st.secrets.get("HARVARD_API_KEY") if "HARVARD_API_KEY" in st.secrets else st.session_state.get("HARVARD_API_KEY")
+            if not harv_key:
+                st.warning("Harvard key missing — skipping Harvard. Put HARVARD_API_KEY in Streamlit secrets or session field.")
             else:
-                prompt = f"""You are an art historian. Write a concise museum label (50-110 words) for the artwork:
-Title: {meta.get('title')}
-Artist: {meta.get('artistDisplayName')}
-Date: {meta.get('objectDate')}
-Medium: {meta.get('medium')}
-Make the text accessible to exhibition visitors and link image to the relevant myth."""
-                try:
-                    text = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=200)
-                except Exception as e:
-                    text = f"[AI generation failed: {e}]"
-                st.markdown("### AI Museum Label (Explorer)")
-                st.write(text)
-                st.download_button("Download label (txt)", data=text, file_name="label_explorer.txt", mime="text/plain")
+                harv_recs = harvard_search(f"title:{character} OR person:{character} OR {character}", apikey=harv_key, max_results=max_per_source)
+                for rec in harv_recs:
+                    unified.append(normalize_harvard(rec))
+                time.sleep(0.1)
+
+        if use_cleveland:
+            sources.append("Cleveland")
+            clev_recs = cleveland_search(character, max_results=max_per_source)
+            for rec in clev_recs:
+                unified.append(normalize_cleveland(rec))
+            time.sleep(0.1)
+
+        st.success(f"Collected {len(unified)} raw records from: {', '.join(sources)}")
+        # now filter with hybrid
+        filtered = []
+        for rec in unified:
+            if passes_hybrid_filter(rec):
+                filtered.append(rec)
+        st.session_state["last_unified"] = unified
+        st.session_state["last_filtered"] = filtered
+        st.write(f"After hybrid filtering: {len(filtered)} records")
+
+    # Display results if available
+    filtered = st.session_state.get("last_filtered", [])
+    if not filtered:
+        st.info("No filtered records yet. Use Search across sources.")
+    else:
+        st.write("Showing filtered artworks (click Select to mark for Stories / Visual Analytics)")
+        cols = st.columns(3)
+        for idx, rec in enumerate(filtered):
+            with cols[idx % 3]:
+                img = rec.get("primaryImageSmall") or rec.get("primaryImage")
+                if img:
+                    try:
+                        st.image(img, use_column_width=True)
+                    except:
+                        st.write("[Image cannot load]")
+                st.markdown(f"**{rec.get('title','Untitled')}**")
+                st.write(f"{rec.get('artist') or ''} • {rec.get('date') or ''}")
+                st.write(f"*{rec.get('medium') or ''}*")
+                if st.button(f"Select {rec.get('source')}:{rec.get('objectID')}", key=f"sel_{rec.get('source')}_{rec.get('objectID')}"):
+                    # store selected in session pool
+                    pool = st.session_state.get("selection_pool", [])
+                    pool.append(rec)
+                    st.session_state["selection_pool"] = pool
+                    st.success("Added to selection pool")
+
+    # show selection pool
+    pool = st.session_state.get("selection_pool", [])
+    if pool:
+        st.markdown("---")
+        st.subheader("Selection pool (for Stories / Analytics)")
+        for s in pool:
+            st.write(f"- {s.get('title')} ({s.get('source')})")
 
 # -------------------------
-# Myth Stories (D) — tag-precise + 3-part AI
+# Page: Stories (tag-precise + AI 3-part)
 # -------------------------
-elif page == "Myth Stories (D)":
-    st.header("Myth Stories — Tag-precise search + 3-part museum text (D)")
-    st.write("This page prefers MET curator tags for high-precision retrieval (higher precision, lower recall).")
-    characters = sorted(list(STRICT_MYTH_TAGS.intersection(set([t.capitalize() for t in CHAR_KEYWORDS])))) or ["Zeus","Athena","Perseus","Medusa","Theseus","Heracles"]
-    character = st.selectbox("Choose character (tag-precise)", ["Zeus","Athena","Perseus","Medusa","Theseus","Heracles"], index=1)
-    st.write("Searching MET for curator-tagged works for:", character)
+elif page == "Stories":
+    st.header("Stories — Curated (tag-precise) selection & AI 3-part text")
+    st.write("This page prefers tag-precise retrieval; when tags are absent it falls back to our hybrid scoring.")
 
-    if st.button("Find tag-precise artworks (D)"):
-        tag_terms = [character, "Greek Mythology", character.capitalize()]
-        ids = []
-        p = st.progress(0)
-        for i, t in enumerate(tag_terms):
-            res = met_search_ids(t, max_results=200)
-            if res:
-                for oid in res:
-                    if oid not in ids:
-                        ids.append(oid)
-            p.progress(int((i+1)/len(tag_terms)*100))
-        p.empty()
-        st.info(f"Found {len(ids)} raw candidate IDs — validating tags...")
+    # let user pick from selection_pool or search tag-precise
+    pool = st.session_state.get("selection_pool", [])
+    st.write("Selected artworks (session pool) or use 'Find by strict tags' to perform tag-precise search.")
+    if pool:
+        idx = st.selectbox("Choose from selection pool", list(range(len(pool))), format_func=lambda i: f"{pool[i].get('title')} — {pool[i].get('source')}")
+        selected = pool[idx]
+        st.markdown(f"**Selected: {selected.get('title')}**")
+        if selected.get("primaryImage"):
+            st.image(selected.get("primaryImage"), width=360)
+    else:
+        selected = None
+
+    # Tag-precise search (user may want to search strictly by tag)
+    tag_query = st.text_input("Tag-precise search (e.g., 'Athena' or 'Greek Mythology')", value="")
+    if st.button("Find by strict tag"):
         results = []
-        p2 = st.progress(0)
-        total = max(1, len(ids))
-        for i, oid in enumerate(ids):
-            meta = met_get_object_cached(oid)
-            if not meta:
-                continue
-            # Check tags
-            tags = [t.get("term") for t in (meta.get("tags") or []) if isinstance(t, dict)]
-            if any(term for term in tags if term and (term == character or term == "Greek Mythology" or term.lower() == character.lower())):
-                thumb = meta.get("primaryImageSmall") or meta.get("primaryImage") or (meta.get("additionalImages") or [None])[0]
-                results.append({"id": oid, "meta": meta, "thumb": thumb})
-            if i % 20 == 0:
-                p2.progress(min(100, int((i+1)/total*100)))
-            time.sleep(0.002)
-        p2.empty()
-        st.session_state["story_tag_results"] = results
-        st.success(f"{len(results)} validated tag-precise artworks found.")
-
-    results = st.session_state.get("story_tag_results", [])
-    if not results:
-        st.info("No tag-precise results yet. Click the button above.")
-    else:
-        st.write(f"Displaying {len(results)} tag-precise artworks.")
-        cols = st.columns(3)
-        for idx, rec in enumerate(results):
-            with cols[idx % 3]:
-                meta = rec["meta"]
-                if rec["thumb"]:
-                    try:
-                        st.image(rec["thumb"], use_column_width=True)
-                    except:
-                        st.write("[Image failed]")
-                st.markdown(f"**{meta.get('title','Untitled')}**")
-                st.write(meta.get('artistDisplayName','Unknown'))
-                st.write(meta.get('objectDate',''))
-                if st.button(f"Select {rec['id']}", key=f"story_sel_{rec['id']}"):
-                    st.session_state["story_selected"] = rec
-                    st.success("Selected.")
-
-    selected = st.session_state.get("story_selected")
-    if selected:
-        meta = selected["meta"]
-        st.markdown("---")
-        st.subheader(f"Selected: {meta.get('title','Untitled')}")
-        if meta.get("primaryImage"):
-            st.image(meta.get("primaryImage"), width=360)
-        st.write(f"{meta.get('artistDisplayName','Unknown')} • {meta.get('objectDate','')} • {meta.get('medium','')}")
-        st.write(f"[Open on MET]({meta.get('objectURL')})")
-
-        if st.button("Generate AI 3-part museum text (Overview / Narrative / Commentary)"):
-            if not openai_available() and not st.session_state.get("OPENAI_API_KEY"):
-                st.warning("No OpenAI key configured. Add to Streamlit secrets or paste in sidebar.")
+        # search MET and Cleveland (Harvard is also searched if key present)
+        met_ids = met_search_ids(tag_query, max_results=200)
+        for oid in met_ids:
+            m = met_get_object(oid)
+            if m:
+                n = normalize_met(m)
+                if has_strict_tag := any(((t.get("term") if isinstance(t, dict) else t) in STRICT_TAGS) for t in n.get("tags", [])):
+                    results.append(n)
+                else:
+                    # include if title/culture/medium match (secondary)
+                    if medium_title_heuristic(n):
+                        results.append(n)
+        # Cleveland
+        clev = cleveland_search(tag_query, max_results=200)
+        for r in clev:
+            n = normalize_cleveland(r)
+            if has_strict_tag := any(((t.get("term") if isinstance(t, dict) else t) in STRICT_TAGS) for t in n.get("tags", [])):
+                results.append(n)
             else:
-                seed = ""  # optional local seed could be used here
+                if medium_title_heuristic(n):
+                    results.append(n)
+        st.session_state["tag_strict_results"] = results
+        st.success(f"Found {len(results)} results for tag-precise query")
+    tag_results = st.session_state.get("tag_strict_results", [])
+    if tag_results:
+        for i, r in enumerate(tag_results[:30]):
+            st.markdown(f"**{r.get('title')}** — {r.get('source')}")
+            if r.get("primaryImageSmall"):
+                try:
+                    st.image(r.get("primaryImageSmall"), width=220)
+                except:
+                    st.write("[image failed]")
+            if st.button(f"Select tag result {i}", key=f"tagsel_{i}"):
+                pool = st.session_state.get("selection_pool", [])
+                pool.append(r)
+                st.session_state["selection_pool"] = pool
+                st.success("Added to selection pool")
+
+    # If selected, allow AI generation
+    selected = st.session_state.get("selection_pool", [None])[0] if pool else None
+    if selected:
+        st.markdown("---")
+        st.subheader("Generate museum texts for selected artwork")
+        st.write("Will produce: Character Overview (short), Myth Narrative (evocative), Artwork Commentary (analysis).")
+        if st.button("Generate AI 3-part text"):
+            if not openai_available() and not st.session_state.get("OPENAI_API_KEY"):
+                st.warning("OpenAI key missing. Add to Streamlit secrets or enter in sidebar.")
+            else:
+                # prepare character hint by trying to extract likely character keywords
+                title = (selected.get("title") or "").lower()
+                likely = [k for k in CHAR_KEYWORDS if k in title]
+                hero = likely[0].capitalize() if likely else st.text_input("If not detected, type the character for narrative:", value="Athena")
                 prompt = f"""
-You are an art historian and museum curator. Produce three labeled sections:
+You are an art historian and museum curator. Produce three labeled sections separated by '---':
 
-1) Character Overview — 1-2 sentences about {character}.
+1) Character Overview — 1-2 sentences introducing {hero} suitable for a museum panel.
 
-2) Myth Narrative — 3-6 short sentences in an evocative museum audio-guide tone.
+2) Myth Narrative — 3-6 sentences, emotive audio-guide tone retelling a key myth of {hero}.
 
-3) Artwork Commentary — 3-6 short sentences analyzing:
-Title: {meta.get('title')}
-Artist: {meta.get('artistDisplayName')}
-Date: {meta.get('objectDate')}
-Discuss composition, lighting, symbolism, and how the image relates to the myth.
+3) Artwork Commentary — 3-6 sentences analyzing the selected artwork:
+Title: {selected.get('title')}
+Artist: {selected.get('artist')}
+Date: {selected.get('date')}
+Medium: {selected.get('medium')}
+Discuss composition, lighting, symbolism, and link to the myth. Keep language accessible.
 
-Return sections separated by '---' and label each.
+Return sections separated by '---'.
 """
                 try:
-                    out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=600)
+                    out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=700)
                 except Exception as e:
                     out = f"[AI generation failed: {e}]"
                 if isinstance(out, str) and '---' in out:
                     parts = [p.strip() for p in out.split('---') if p.strip()]
                     for p in parts:
-                        if "Overview" in p or p.startswith("1"):
-                            st.markdown("### 🧾 Character Overview")
+                        if p.lower().startswith("1") or "overview" in p.lower():
+                            st.markdown("### Character Overview")
                             st.write(p)
-                        elif "Narrative" in p or p.startswith("2"):
-                            st.markdown("### 📖 Myth Narrative")
+                        elif p.lower().startswith("2") or "narrative" in p.lower():
+                            st.markdown("### Myth Narrative")
                             st.write(p)
-                        elif "Artwork" in p or p.startswith("3"):
-                            st.markdown("### 🖼 Artwork Commentary")
+                        elif p.lower().startswith("3") or "commentary" in p.lower():
+                            st.markdown("### Artwork Commentary")
                             st.write(p)
                         else:
                             st.write(p)
                 else:
-                    st.markdown("### AI Output")
                     st.write(out)
-                st.download_button("Download museum text", data=out, file_name=f"{character}_museum_text.txt", mime="text/plain")
+                st.download_button("Download museum text", data=out, file_name="museum_text.txt", mime="text/plain")
 
 # -------------------------
-# Visual Analytics
+# Page: Visual Analytics
 # -------------------------
 elif page == "Visual Analytics":
-    st.header("Visual Analytics — analyze your fetched dataset")
-    st.write("Use this page after fetching artworks in Explorer (A) or Stories (D). It computes distributions and simple visual features (dominant color).")
-
-    dataset_choice = st.selectbox("Analyze dataset from:", ["Explorer (A) - last fetch", "Stories (D) - last tag-precise fetch"], index=0)
-    if dataset_choice.startswith("Explorer"):
-        ds = st.session_state.get("explorer_thumbs", [])
+    st.header("Visual Analytics — analyze selected dataset")
+    pool = st.session_state.get("selection_pool", [])
+    if not pool:
+        st.info("No artworks in selection pool. Use Explorer or Stories to add artworks.")
     else:
-        ds = st.session_state.get("story_tag_results", [])
-
-    if not ds:
-        st.info("No dataset available in session. Fetch artworks first from Explorer (A) or Stories (D).")
-    else:
-        st.write(f"Analyzing {len(ds)} records.")
-        # Basic metadata lists
+        st.write(f"Analyzing {len(pool)} selected artworks.")
+        # compute distributions
         years = []
         cultures = []
         mediums = []
-        sizes = []
         colors = []
+        sizes_w = []
+        sizes_h = []
         p = st.progress(0)
-        for i, rec in enumerate(ds):
-            meta = rec["meta"]
-            # years
-            y = meta.get("objectBeginDate") or meta.get("objectDate")
+        for i, rec in enumerate(pool):
+            meta = rec
+            # year
+            y = None
             try:
-                if isinstance(y, int):
+                raw = (meta.get("raw") or {})
+                yval = raw.get("objectBeginDate") or raw.get("creation_date") or raw.get("dated") or meta.get("date")
+                if isinstance(yval, int):
+                    y = yval
+                elif isinstance(yval, str) and yval.strip().isdigit():
+                    y = int(yval.strip())
+                if y:
                     years.append(y)
-                elif isinstance(y, str) and y.strip().isdigit():
-                    years.append(int(y.strip()))
             except:
                 pass
-            # culture / medium
-            cult = (meta.get("culture") or "").strip()
-            if cult:
-                cultures.append(cult)
-            med = (meta.get("medium") or "").strip()
-            if med:
-                mediums.append(med)
-            # dimensions heuristic
-            w, h = extract_dimensions(meta)
-            if w or h:
-                sizes.append((w or 0, h or 0))
-            # dominant color (try)
-            img_url = meta.get("primaryImageSmall") or meta.get("primaryImage")
-            color_hex = None
-            if img_url:
-                b = fetch_image_bytes(img_url)
+            # culture/medium
+            if meta.get("culture"):
+                cultures.append(meta.get("culture"))
+            if meta.get("medium"):
+                mediums.append(meta.get("medium"))
+            # dimensions
+            w,h = extract_dimensions_simple(meta)
+            if w: sizes_w.append(w)
+            if h: sizes_h.append(h)
+            # dominant color
+            img = meta.get("primaryImageSmall") or meta.get("primaryImage")
+            if img:
+                b = fetch_bytes(img)
                 if b:
-                    color_hex = dominant_color_from_bytes(b)
-            colors.append(color_hex or "#888888")
-            if i % 5 == 0:
-                p.progress(min(100, int((i+1)/len(ds)*100)))
+                    colors.append(dominant_color_from_bytes(b))
+                else:
+                    colors.append("#888888")
+            else:
+                colors.append("#888888")
+            if i % 2 == 0:
+                p.progress(min(100, int((i+1)/len(pool)*100)))
             time.sleep(0.001)
         p.empty()
 
-        # Year distribution
         if years:
-            fig = px.histogram(x=years, nbins=30, title="Year / Period Distribution", labels={"x":"Year","y":"Count"})
+            fig = px.histogram(x=years, nbins=20, labels={"x":"Year","y":"Count"}, title="Year distribution")
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No reliable year data available for this dataset.")
-
-        # Culture pie
         if cultures:
-            ccount = collections.Counter(cultures).most_common(12)
-            labels = [k for k,_ in ccount]
-            vals = [v for _,v in ccount]
-            fig2 = px.pie(values=vals, names=labels, title="Culture / Origin (top)")
+            topc = Counter(cultures).most_common(10)
+            fig2 = px.pie(values=[v for _,v in topc], names=[k for k,_ in topc], title="Culture / Origin (top)")
             st.plotly_chart(fig2, use_container_width=True)
-        # Mediums bar
         if mediums:
-            mcount = collections.Counter(mediums).most_common(12)
-            fig3 = px.bar(x=[c for _,c in mcount], y=[k for k,_ in mcount], orientation='h', labels={"x":"Count","y":"Medium"}, title="Mediums (top)")
+            topm = Counter(mediums).most_common(12)
+            fig3 = px.bar(x=[v for _,v in topm], y=[k for k,_ in topm], orientation='h', labels={"x":"Count","y":"Medium"}, title="Mediums (top)")
             st.plotly_chart(fig3, use_container_width=True)
+        if sizes_w and sizes_h:
+            fig4 = px.scatter(x=sizes_w, y=sizes_h, labels={"x":"Width (approx)","y":"Height (approx)"}, title="Dimensions scatter (approx)")
+            st.plotly_chart(fig4, use_container_width=True)
 
-        # Sizes scatter
-        if sizes:
-            w_vals = [s[0] for s in sizes if s[0] and s[1]]
-            h_vals = [s[1] for s in sizes if s[0] and s[1]]
-            if w_vals and h_vals:
-                fig4 = px.scatter(x=w_vals, y=h_vals, labels={"x":"Width (cm)","y":"Height (cm)"}, title="Dimensions scatter (approx.)")
-                st.plotly_chart(fig4, use_container_width=True)
-        # Dominant color swatches
-        st.markdown("### Dominant color swatches (sample)")
-        sw_cols = st.columns(8)
-        sample_colors = colors[:8]
-        for i, col in enumerate(sw_cols):
-            with col:
-                hexc = sample_colors[i] if i < len(sample_colors) else "#777777"
-                st.markdown(f"<div style='background:{hexc}; width:100%; height:80px; border-radius:6px;'></div>", unsafe_allow_html=True)
-                st.write(hexc)
+        # show color swatches
+        st.markdown("### Dominant color swatches")
+        cols = st.columns(min(8, len(colors)))
+        for i, c in enumerate(colors[:8]):
+            with cols[i]:
+                st.markdown(f"<div style='height:80px;background:{c};border-radius:6px;'></div>", unsafe_allow_html=True)
+                st.write(c)
 
-        # Download CSV summary
-        if st.button("Export summary CSV"):
+        # export CSV
+        if st.button("Export selection summary CSV"):
             import csv, io
             out = io.StringIO()
             w = csv.writer(out)
-            w.writerow(["objectID","title","artist","date","culture","medium","primaryImage","dominantColor"])
-            for rec, c in zip(ds, colors):
-                m = rec["meta"]
-                w.writerow([m.get("objectID"), m.get("title"), m.get("artistDisplayName"), m.get("objectDate"), m.get("culture"), m.get("medium"), m.get("primaryImageSmall") or m.get("primaryImage"), c])
-            st.download_button("Download CSV", data=out.getvalue(), file_name="visual_analysis_summary.csv", mime="text/csv")
+            w.writerow(["source","objectID","title","artist","date","culture","medium","image","dominantColor"])
+            for rec, c in zip(pool, colors):
+                w.writerow([rec.get("source"), rec.get("objectID"), rec.get("title"), rec.get("artist"), rec.get("date"), rec.get("culture"), rec.get("medium"), rec.get("primaryImageSmall") or rec.get("primaryImage"), c])
+            st.download_button("Download CSV", data=out.getvalue(), file_name="selection_summary.csv", mime="text/csv")
 
 # -------------------------
-# Mythic Lineages (simple explanations)
+# Page: Lineages
 # -------------------------
-elif page == "Mythic Lineages":
-    st.header("Mythic Lineages — Museum-style panel")
-    st.write("A compact panel with key mythic parentage & relationships. Use 'Generate AI panel' to let OpenAI craft a museum-style introduction.")
+elif page == "Lineages":
+    st.header("Mythic Lineages — concise panel")
+    st.write("Key parentage & relationships (museum-style bullets).")
     RELS = [
         ("Chaos","Gaia","parent"),
         ("Gaia","Uranus","parent"),
         ("Uranus","Cronus","parent"),
         ("Cronus","Zeus","parent"),
-        ("Cronus","Hera","parent"),
-        ("Cronus","Poseidon","parent"),
-        ("Cronus","Hades","parent"),
         ("Zeus","Athena","parent"),
         ("Zeus","Apollo","parent"),
         ("Zeus","Artemis","parent"),
         ("Zeus","Ares","parent"),
         ("Zeus","Hermes","parent"),
-        ("Zeus","Dionysus","parent"),
-        ("Zeus","Perseus","parent"),
-        ("Zeus","Heracles","parent")
     ]
-    # local fallback explanation generator
-    def local_relation_explanation(a,b,rel):
-        if rel=="parent":
-            return f"🔹 {a} → {b}\n{a} is a progenitor figure whose attributes shape {b}."
-        if rel=="conflict":
-            return f"🔹 {a} → {b}\nThe relation is adversarial, often dramatised in myth."
-        return f"🔹 {a} → {b}\nRelation: {rel}."
+    for a,b,r in RELS:
+        st.markdown(f"🔹 **{a} → {b}**  —  { 'Parentage' if r=='parent' else r }")
 
-    if st.button("Generate AI panel (intro + bullets)"):
+    if st.button("Generate AI panel intro"):
         if not openai_available() and not st.session_state.get("OPENAI_API_KEY"):
-            st.warning("No OpenAI key — producing local panel text.")
-            panel = "A compact genealogy of key mythic figures (local fallback)."
-            st.markdown("### Panel")
-            st.write(panel)
-            st.markdown("---")
-            for a,b,r in RELS:
-                st.markdown(local_relation_explanation(a,b,r))
+            st.warning("OpenAI key missing. Showing local fallback panel.")
+            st.write("This panel shows a compact genealogy of early Greek mythic figures; parental lines indicate transmission of domains and functions.")
         else:
-            items_text = "\n".join([f"{i+1}. {a} -> {b} (rel: {rel})" for i,(a,b,rel) in enumerate(RELS)])
-            prompt = f"""You are a curator writing a museum panel introduction (3-5 sentences) about Greek myth genealogy, followed by short bullet explanations for each relation listed below. Keep language formal and accessible.
-
-Relations:
-{items_text}
-"""
+            prompt = "Write a concise museum-panel introduction (3-5 sentences) about Greek myth genealogy connecting primordial beings to Olympians."
             try:
-                out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=600)
+                out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=200)
+                st.markdown("### AI Panel Intro")
+                st.write(out)
             except Exception as e:
                 st.error(f"AI failed: {e}")
-                out = None
-            if out:
-                # naive split: first paragraph as panel, then bullets
-                parts = out.strip().split("\n")
-                st.markdown("### AI Panel")
-                st.write("\n".join(parts[:5]))
-                st.markdown("---")
-                st.markdown("### Relations")
-                for line in parts[5:]:
-                    if line.strip():
-                        st.markdown(line)
 
 # -------------------------
-# About
+# Page: About
 # -------------------------
 elif page == "About":
-    st.header("About — Mythic Art Explorer (Final C)")
+    st.header("About this app")
     st.write("""
-        This app demonstrates a pipeline for combining museum APIs (MET), rule-based filtering (tag + medium),
-        simple image feature extraction, and optional AI-generated museum text.
-
-        Deployment notes:
-        - Add `openai`, `pillow`, `numpy`, `plotly` to requirements.txt for full functionality.
-        - Put OPENAI_API_KEY in Streamlit secrets (recommended) or paste into sidebar for session use.
+    Mythic Art Explorer — multi-source edition.
+    Sources: MET (no key), Harvard (requires key), Cleveland Open Access (no key).
+    Filtering: hybrid (strict tag OR medium/title/culture heuristics).
+    AI: optional via OpenAI (put OPENAI_API_KEY in Streamlit secrets or paste into sidebar for session).
     """)
-    st.markdown("**Resources & tips**")
-    st.write("- If too many non-myth images appear, use the 'Myth Stories (D)' page (tag-precise).")
-    st.write("- Visual Analytics estimates color & size heuristically — for production you may want robust parsing & color clustering.")
+    st.write("If you want, I can now (A) change layout to waterfall, (B) add slideshow, or (C) further tune filters.")
 
 # End of file
