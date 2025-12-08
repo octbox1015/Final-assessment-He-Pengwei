@@ -1,46 +1,35 @@
 # final_app.py
 """
-Mythic Art Explorer — Multi-Museum (MET + AIC + Cleveland + British Museum + Rijksmuseum)
-Mode: A — 全自动搜索 5 家博物馆（推荐）
-Features:
- - Multi-source search: MET (no key), AIC (no key), Cleveland (no key), British Museum (public collection API), Rijksmuseum (needs free key)
- - Hybrid Tag+Medium filtering for Greek/Roman myth relevance
- - Selection pool, Stories (AI Museum Label / Myth Narrative / Artwork Commentary) — optional OpenAI
- - Visual analytics (simple)
- - Sidebar clearly shows which APIs require a key (Rijksmuseum only)
-Notes:
- - Put keys in Streamlit secrets for production:
-     st.secrets["OPENAI_API_KEY"] = "sk-..."
-     st.secrets["RIJKSMUSEUM_KEY"] = "your-rijks-key"
- - Or paste them in the sidebar for the session.
+Mythic Art Explorer — Unified Explorer + Stories (English UI)
+Search across multiple open museum APIs (MET, AIC, Cleveland, British Museum, Rijksmuseum)
+Mode: Automatic (all sources)
+- Rijksmuseum requires a free key (put in st.secrets or sidebar)
+- OpenAI is optional for AI text generation (put in st.secrets or sidebar)
 """
 
 import streamlit as st
 import requests
 import time
 import json
+from typing import List, Dict, Optional
 from collections import Counter
-from typing import List, Dict, Optional, Tuple
-import plotly.express as px
-import io
 from PIL import Image
-import numpy as np
+import io
 
-# -------------------------
-# Page config & header
-# -------------------------
-st.set_page_config(page_title="Mythic Art Explorer — Multi-Museum", layout="wide")
-st.title("🏛 Mythic Art Explorer — MET + AIC + Cleveland + British Museum + Rijksmuseum")
+# Optional plotting
+try:
+    import plotly.express as px
+except Exception:
+    px = None
 
-st.markdown("""
-**Mode A — 全自动搜索 5 家博物馆（推荐）**  
-本页会同时检索：MET（无需 key）、Art Institute of Chicago（无需 key）、Cleveland Museum Open Access（无需 key）、British Museum（公开 collection API）、Rijksmuseum（需免费注册 key）。  
-在侧边栏中你可以把 **Rijksmuseum Key** 与 **OpenAI Key**（可选）放入 `st.secrets` 或临时输入来启用高级功能。
-""")
+# ---- Page config ----
+st.set_page_config(page_title="Mythic Art Explorer — Unified", layout="wide")
+st.title("🏛 Mythic Art Explorer — Unified Explorer & Stories")
+st.markdown(
+    "Search multiple museum APIs for Greek/Roman myth-related artworks and generate a museum-style Myth Narrative and Artwork Commentary (AI optional)."
+)
 
-# -------------------------
-# network helpers (cached)
-# -------------------------
+# ---- Utilities: network with caching ----
 @st.cache_data(ttl=60*60*24, show_spinner=False)
 def safe_get_json(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
     try:
@@ -51,7 +40,7 @@ def safe_get_json(url: str, params: dict = None, timeout: int = 12) -> Optional[
         return None
 
 @st.cache_data(ttl=60*60*24, show_spinner=False)
-def fetch_bytes(url: str, timeout: int = 10):
+def safe_get_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
@@ -59,9 +48,8 @@ def fetch_bytes(url: str, timeout: int = 10):
     except Exception:
         return None
 
-# -------------------------
-# MET helpers (no key)
-# -------------------------
+# ---- Data sources endpoints & normalizers ----
+# MET
 MET_SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1/search"
 MET_OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{}"
 
@@ -69,8 +57,7 @@ def met_search_ids(q: str, max_results: int = 200) -> List[int]:
     res = safe_get_json(MET_SEARCH, params={"q": q, "hasImages": True})
     if not res:
         return []
-    ids = res.get("objectIDs") or []
-    return ids[:max_results]
+    return (res.get("objectIDs") or [])[:max_results]
 
 def met_get_object(oid: int) -> Optional[dict]:
     return safe_get_json(MET_OBJECT.format(oid))
@@ -78,36 +65,30 @@ def met_get_object(oid: int) -> Optional[dict]:
 def normalize_met(meta: dict) -> dict:
     return {
         "source": "MET",
-        "objectID": meta.get("objectID"),
+        "id": meta.get("objectID"),
         "title": meta.get("title"),
         "artist": meta.get("artistDisplayName"),
         "date": meta.get("objectDate"),
         "culture": meta.get("culture"),
         "medium": meta.get("medium"),
-        "dimensions": meta.get("dimensions"),
-        "primaryImage": meta.get("primaryImage"),
-        "primaryImageSmall": meta.get("primaryImageSmall"),
+        "image": meta.get("primaryImage") or meta.get("primaryImageSmall"),
         "objectURL": meta.get("objectURL"),
-        "tags": meta.get("tags") or [],
         "raw": meta
     }
 
-# -------------------------
-# Art Institute of Chicago (AIC) helpers (no key)
-# docs: https://api.artic.edu/docs/
-# -------------------------
+# AIC
 AIC_SEARCH = "https://api.artic.edu/api/v1/artworks/search"
+AIC_DETAIL = "https://api.artic.edu/api/v1/artworks/{}"
 
 def aic_search(q: str, max_results: int = 100) -> List[dict]:
-    params = {"q": q, "limit": max_results, "fields": "id,title,artist_display,date_display,image_id,place_of_origin,classification,thumbnail"}
-    res = safe_get_json("https://api.artic.edu/api/v1/artworks/search", params=params)
+    params = {"q": q, "limit": max_results, "fields": "id,title,artist_display,date_display,image_id,place_of_origin,classification"}
+    res = safe_get_json(AIC_SEARCH, params=params)
     if not res:
         return []
     ids = [d.get("id") for d in res.get("data", []) if d.get("id")]
-    # fetch details for ids (batch)
     out = []
     for i in ids[:max_results]:
-        rec = safe_get_json(f"https://api.artic.edu/api/v1/artworks/{i}", params={"fields":"id,title,artist_display,date_display,image_id,place_of_origin,classification,thumbnail"})
+        rec = safe_get_json(AIC_DETAIL.format(i), params={"fields":"id,title,artist_display,date_display,image_id,place_of_origin,classification"})
         if rec and rec.get("data"):
             out.append(rec["data"])
     return out
@@ -117,85 +98,71 @@ def normalize_aic(rec: dict) -> dict:
     image = f"https://www.artic.edu/iiif/2/{image_id}/full/843,/0/default.jpg" if image_id else None
     return {
         "source": "AIC",
-        "objectID": rec.get("id"),
+        "id": rec.get("id"),
         "title": rec.get("title"),
         "artist": rec.get("artist_display"),
         "date": rec.get("date_display"),
         "culture": rec.get("place_of_origin"),
         "medium": rec.get("classification"),
-        "dimensions": None,
-        "primaryImage": image,
-        "primaryImageSmall": image,
+        "image": image,
         "objectURL": f"https://www.artic.edu/artworks/{rec.get('id')}",
-        "tags": [],
         "raw": rec
     }
 
-# -------------------------
-# Cleveland Museum of Art (Open Access)
-# docs: https://openaccess-api.clevelandart.org/
-# -------------------------
+# Cleveland (Open Access)
 CLEVELAND_SEARCH = "https://openaccess-api.clevelandart.org/api/artworks"
 
-def cleveland_search(q: str, max_results: int = 100) -> List[dict]:
+def cleveland_search(q: str, max_results: int = 80) -> List[dict]:
     out = []
     page = 1
     per = 50
     collected = 0
     while collected < max_results:
-        res = safe_get_json(CLEVELAND_SEARCH, params={"q": q, "limit": per, "page": page})
-        if not res:
+        params = {"q": q, "limit": per, "page": page}
+        res = safe_get_json(CLEVELAND_SEARCH, params=params)
+        if not res or not res.get("data"):
             break
-        data = res.get("data") or []
-        for r in data:
+        for r in res.get("data", []):
             out.append(r)
             collected += 1
             if collected >= max_results:
                 break
-        if not data:
-            break
         page += 1
     return out
 
 def normalize_cleveland(rec: dict) -> dict:
     img = None
-    if rec.get("images"):
-        first = rec.get("images")[0]
-        if first.get("iiif_base"):
-            img = first.get("iiif_base") + "/full/400,/0/default.jpg"
+    images = rec.get("images") or []
+    if images and isinstance(images, list):
+        first = images[0]
+        iiif = first.get("iiif_base")
+        if iiif:
+            img = iiif + "/full/400,/0/default.jpg"
         else:
-            img = first.get("publicCaption")
-    tags = rec.get("tags") or []
+            img = first.get("url")
     return {
         "source": "Cleveland",
-        "objectID": rec.get("id"),
+        "id": rec.get("id"),
         "title": rec.get("title"),
-        "artist": rec.get("creators")[0].get("description") if rec.get("creators") else None,
+        "artist": (rec.get("creators") or [{}])[0].get("description") if rec.get("creators") else None,
         "date": rec.get("creation_date"),
         "culture": rec.get("culture"),
         "medium": rec.get("technique") or rec.get("classification"),
-        "dimensions": rec.get("measurements"),
-        "primaryImage": img,
-        "primaryImageSmall": img,
+        "image": img,
         "objectURL": rec.get("url"),
-        "tags": [{"term": t.get("term")} for t in tags if isinstance(t, dict)],
         "raw": rec
     }
 
-# -------------------------
-# British Museum (public collection API; no key)
-# docs: https://collectionapi.britishmuseum.org/  (public endpoints)
-# -------------------------
-BM_SEARCH = "https://collectionapi.britishmuseum.org/object"  # note: sometimes returns single object; we'll use search-like endpoint via q param
+# British Museum (public)
+BRITISH_SEARCH = "https://collectionapi.britishmuseum.org/search"
 
 def british_search(q: str, max_results: int = 100) -> List[dict]:
-    # The BM API sometimes exposes search via 'q' param; fallback if fails
-    out = []
-    res = safe_get_json("https://collectionapi.britishmuseum.org/search", params={"q": q})
+    res = safe_get_json(BRITISH_SEARCH, params={"q": q})
     if not res:
         return []
     hits = res.get("hits") or []
     ids = [h.get("object_id") for h in hits][:max_results]
+    out = []
     for oid in ids:
         rec = safe_get_json(f"https://collectionapi.britishmuseum.org/object/{oid}")
         if rec:
@@ -203,37 +170,24 @@ def british_search(q: str, max_results: int = 100) -> List[dict]:
     return out
 
 def normalize_british(rec: dict) -> dict:
-    # British Museum fields vary; be conservative
-    img = None
-    if rec.get("primaryImage"):
-        img = rec.get("primaryImage")
-    elif rec.get("images"):
-        imgs = rec.get("images")
-        if imgs and isinstance(imgs, list) and imgs[0].get("url"):
-            img = imgs[0].get("url")
+    img = rec.get("primaryImage") or (rec.get("images") or [{}])[0].get("url") if rec.get("images") else None
     return {
         "source": "BritishMuseum",
-        "objectID": rec.get("object_id") or rec.get("id"),
+        "id": rec.get("object_id") or rec.get("id"),
         "title": rec.get("title"),
         "artist": rec.get("maker"),
         "date": rec.get("date"),
         "culture": rec.get("culture"),
         "medium": rec.get("materials"),
-        "dimensions": rec.get("dimensions"),
-        "primaryImage": img,
-        "primaryImageSmall": img,
+        "image": img,
         "objectURL": rec.get("object_url") or rec.get("url"),
-        "tags": rec.get("tags") or [],
         "raw": rec
     }
 
-# -------------------------
-# Rijksmuseum (requires free key) — optional
-# docs: https://www.rijksmuseum.nl/en/api
-# -------------------------
+# Rijksmuseum (requires free key)
 RIJK_BASE = "https://www.rijksmuseum.nl/api/en/collection"
 
-def rijks_search(q: str, apikey: str, max_results: int = 100) -> List[dict]:
+def rijks_search(q: str, apikey: str, max_results: int = 80) -> List[dict]:
     out = []
     per_page = 50
     page = 1
@@ -243,13 +197,13 @@ def rijks_search(q: str, apikey: str, max_results: int = 100) -> List[dict]:
         res = safe_get_json(RIJK_BASE, params=params)
         if not res:
             break
-        data = res.get("artObjects") or []
-        for a in data:
-            out.append(a)
+        items = res.get("artObjects") or []
+        for itm in items:
+            out.append(itm)
             collected += 1
             if collected >= max_results:
                 break
-        if not data:
+        if not items:
             break
         page += 1
     return out
@@ -258,48 +212,59 @@ def normalize_rijks(rec: dict) -> dict:
     img = rec.get("webImage", {}).get("url")
     return {
         "source": "Rijksmuseum",
-        "objectID": rec.get("objectNumber"),
+        "id": rec.get("objectNumber"),
         "title": rec.get("title"),
         "artist": rec.get("principalMaker"),
         "date": rec.get("dating", {}).get("presentingDate"),
         "culture": None,
         "medium": rec.get("physicalMedium"),
-        "dimensions": rec.get("dimensions"),
-        "primaryImage": img,
-        "primaryImageSmall": img,
+        "image": img,
         "objectURL": rec.get("links", {}).get("web"),
-        "tags": [],
         "raw": rec
     }
 
-# -------------------------
-# Hybrid Filter for Greek/Roman myth relevance
-# -------------------------
-STRICT_TAGS = {"Greek Mythology", "Roman", "Zeus", "Athena", "Perseus", "Medusa", "Heracles", "Theseus", "Apollo", "Artemis", "Aphrodite", "Hermes", "Poseidon", "Hades", "Demeter", "Dionysus", "Orpheus", "Narcissus"}
+# ---- Hybrid filter for Greek/Roman myth relevance ----
+CHAR_KEYWORDS = [k.lower() for k in [
+    "zeus","hera","athena","apollo","artemis","aphrodite","hermes","perseus","medusa",
+    "heracles","theseus","achilles","poseidon","hades","demeter","persephone","dionysus","orpheus","narcissus"
+]]
+MEDIUM_KEYWORDS = ["greek","hellenistic","classical","roman","amphora","vase","terracotta","marble","bronze","red-figure","black-figure"]
 
-CHAR_KEYWORDS = [k.lower() for k in ["zeus","athena","perseus","medusa","heracles","theseus","apollo","artemis","aphrodite","hermes","poseidon","hades","demeter","dionysus","orpheus","narcissus"]]
-MEDIUM_KEYWORDS = ["greek","hellenistic","classical","roman","amphora","vase","terracotta","marble","bronze","attic","red-figure","black-figure"]
+STRICT_TAGS = {"Greek Mythology", "Roman", "Classical Antiquity", "Mythology", "Greek", "Roman"}
 
 def rec_has_strict_tag(rec: dict) -> bool:
-    tags = rec.get("tags") or []
+    tags = []
+    raw = rec.get("raw") or {}
+    # try multiple fields
+    for key in ("tags","tag","objectTags","label","subject","subjects"):
+        val = raw.get(key)
+        if not val:
+            continue
+        if isinstance(val, list):
+            for t in val:
+                if isinstance(t, dict):
+                    term = t.get("term") or t.get("name") or t.get("label")
+                else:
+                    term = str(t)
+                tags.append(term)
+        elif isinstance(val, str):
+            tags.append(val)
     for t in tags:
-        if isinstance(t, dict):
-            term = t.get("term") or t.get("name")
-        else:
-            term = t
-        if term and any(term.strip().lower() == s.lower() for s in STRICT_TAGS):
+        if not t:
+            continue
+        if any(t.strip().lower() == s.lower() for s in STRICT_TAGS):
             return True
     return False
 
 def rec_medium_title_heuristic(rec: dict) -> bool:
     title = (rec.get("title") or "").lower()
-    culture = (rec.get("culture") or "").lower() if rec.get("culture") else ""
-    medium = (rec.get("medium") or "").lower() if rec.get("medium") else ""
+    culture = (rec.get("culture") or "") if rec.get("culture") else ""
+    medium = (rec.get("medium") or "") if rec.get("medium") else ""
     if any(k in title for k in CHAR_KEYWORDS):
         return True
-    if any(k in culture for k in MEDIUM_KEYWORDS):
+    if any(k in culture.lower() for k in MEDIUM_KEYWORDS):
         return True
-    if any(k in medium for k in MEDIUM_KEYWORDS):
+    if any(k in str(medium).lower() for k in MEDIUM_KEYWORDS):
         return True
     return False
 
@@ -308,18 +273,17 @@ def passes_hybrid(rec: dict) -> bool:
         return True
     if rec_medium_title_heuristic(rec):
         return True
-    # reject obvious modern/non-art
-    classification = str((rec.get("raw") or {}).get("classification") or "").lower()
-    dept = str((rec.get("raw") or {}).get("department") or "").lower()
+    # reject obvious non-art
+    raw = rec.get("raw") or {}
+    classification = str(raw.get("classification") or "").lower()
+    dept = str(raw.get("department") or "").lower()
     rejects = ["costume","textile","photograph","musical","arms and armor","jewelry"]
     if any(r in classification for r in rejects) or any(r in dept for r in rejects):
         return False
     return False
 
-# -------------------------
-# OpenAI wrapper (optional) — read from st.secrets or session
-# -------------------------
-def openai_available() -> bool:
+# ---- OpenAI optional wrapper ----
+def openai_client_available() -> bool:
     try:
         if "OPENAI_API_KEY" in st.secrets and st.secrets["OPENAI_API_KEY"]:
             return True
@@ -344,353 +308,256 @@ def ai_generate_text(prompt: str, model: str = "gpt-4.1-mini", max_tokens: int =
     resp = client.responses.create(model=model, input=prompt)
     return resp.output_text or ""
 
-# -------------------------
-# Small utilities: dominant color
-# -------------------------
-def dominant_color_hex_from_image_bytes(b: bytes) -> str:
-    try:
-        im = Image.open(io.BytesIO(b)).convert("RGB")
-        im = im.resize((64,64))
-        arr = np.array(im).reshape((-1, 3))
-        vals, counts = np.unique(arr, axis=0, return_counts=True)
-        idx = counts.argmax()
-        rgb = tuple(vals[idx].tolist())
-        return '#%02x%02x%02x' % rgb
-    except Exception:
-        return "#888888"
-
-# -------------------------
-# Sidebar: keys & options
-# -------------------------
-st.sidebar.header("Config & Keys")
-st.sidebar.markdown("Rijksmuseum requires a free API key (register on rijksmuseum.nl). Put it in Streamlit secrets under `RIJKSMUSEUM_KEY` or paste here for session.")
-rijks_key_input = st.sidebar.text_input("Rijksmuseum key (session)", type="password")
+# ---- Sidebar: keys and options (English) ----
+st.sidebar.header("Configuration & Keys")
+st.sidebar.markdown("Rijksmuseum requires a free API key (register at https://www.rijksmuseum.nl/en/api). Place it in `st.secrets['RIJKSMUSEUM_KEY']` or paste here for session use.")
+rijks_input = st.sidebar.text_input("Rijksmuseum key (session)", type="password")
 if st.sidebar.button("Save Rijks key to session"):
-    st.session_state["RIJKSMUSEUM_KEY"] = rijks_key_input
-    st.sidebar.success("Rijks key saved to session (session only).")
+    if rijks_input:
+        st.session_state["RIJKSMUSEUM_KEY"] = rijks_input
+        st.sidebar.success("Rijks key saved to session (temporary).")
+    else:
+        st.sidebar.warning("No key entered.")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("OpenAI key (optional): place in st.secrets['OPENAI_API_KEY'] or paste here to enable AI features.")
-openai_input = st.sidebar.text_input("OpenAI key (session)", type="password")
+st.sidebar.markdown("OpenAI key (optional for AI text generation). Put in st.secrets['OPENAI_API_KEY'] or paste here for session.")
+openai_input = st.sidebar.text_input("OpenAI key (session)", type="password", key="openai_in")
 if st.sidebar.button("Save OpenAI key to session"):
-    st.session_state["OPENAI_API_KEY"] = openai_input
-    st.sidebar.success("OpenAI key saved to session.")
+    if openai_input:
+        st.session_state["OPENAI_API_KEY"] = openai_input
+        st.sidebar.success("OpenAI key saved to session (temporary).")
+    else:
+        st.sidebar.warning("No key entered.")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("Search mode: A (All 5 sources, automatic hybrid filter).")
-page = st.sidebar.selectbox("Page", ["Home","Explorer","Stories","Analytics","Lineages","About"], index=1)
+st.sidebar.markdown("Search mode: Automatic across all sources (recommended).")
 
-# -------------------------
-# Home
-# -------------------------
-if page == "Home":
-    st.header("About this multi-museum explorer")
-    st.write("""
-This app searches multiple open museum APIs for Greek & Roman myth-related artworks,
-applies a hybrid Tag+Medium heuristic to filter results, and provides AI-assisted museum texts (optional).
-Data sources: MET, Art Institute of Chicago (AIC), Cleveland Museum Open Access, British Museum (public), Rijksmuseum (optional key).
-""")
-    st.write("If you use Rijksmuseum or OpenAI features, please put keys into the sidebar or st.secrets for safety.")
+# ---- Unified Explorer & Stories Page ----
+st.header("Search & Generate — Explorer + Stories (Unified)")
 
-# -------------------------
-# Explorer (Mode A: auto search all five)
-# -------------------------
-elif page == "Explorer":
-    st.header("Explorer — Search across 5 museums (Mode A)")
-    q = st.text_input("Search term (example: Athena, Perseus, Zeus)", value="Athena")
-    max_per_source = st.slider("Max results per source", 20, 100, 60, step=10)
+# Search inputs
+col1, col2 = st.columns([3,1])
+with col1:
+    q = st.text_input("Enter character or keyword (example: Athena, Perseus, Zeus)", value="Athena")
+with col2:
+    max_per_source = st.selectbox("Max per source", [20, 40, 60, 80], index=1)
 
-    if st.button("Search all sources"):
-        st.info("Searching MET / AIC / Cleveland / British Museum / Rijksmuseum (if key)...")
-        results_unified = []
+search_btn = st.button("Search all sources")
 
-        # MET
+if search_btn:
+    st.info("Searching MET, AIC, Cleveland, British Museum, (Rijksmuseum if key provided)...")
+    unified = []
+
+    # MET
+    try:
+        aliases = [q, f"{q} myth", f"{q} greek", f"{q} vase"]
+        met_ids = []
+        for a in aliases:
+            ids = met_search_ids(a, max_results=max_per_source)
+            for i in ids:
+                if i not in met_ids:
+                    met_ids.append(i)
+        for oid in met_ids[:max_per_source]:
+            m = met_get_object(oid)
+            if m:
+                unified.append(normalize_met(m))
+    except Exception:
+        st.warning("MET search had an issue (continuing).")
+
+    # AIC
+    try:
+        aic_recs = aic_search(q, max_results=max_per_source)
+        for r in aic_recs:
+            unified.append(normalize_aic(r))
+    except Exception:
+        st.warning("AIC search had an issue (continuing).")
+
+    # Cleveland
+    try:
+        clev_recs = cleveland_search(q, max_results=max_per_source)
+        for r in clev_recs:
+            unified.append(normalize_cleveland(r))
+    except Exception:
+        st.warning("Cleveland search had an issue (continuing).")
+
+    # British Museum
+    try:
+        bm_recs = british_search(q, max_results=max_per_source)
+        for r in bm_recs:
+            unified.append(normalize_british(r))
+    except Exception:
+        st.info("British Museum search may not return results for some queries (continuing).")
+
+    # Rijksmuseum (optional)
+    rijks_key = st.secrets.get("RIJKSMUSEUM_KEY") if "RIJKSMUSEUM_KEY" in st.secrets else st.session_state.get("RIJKSMUSEUM_KEY")
+    if rijks_key:
         try:
-            aliases = [q, f"{q} myth", f"{q} greek", f"{q} vase"]
-            met_ids = []
-            for a in aliases:
-                ids = met_search_ids(a, max_results=max_per_source)
-                for i in ids:
-                    if i not in met_ids:
-                        met_ids.append(i)
-            for oid in met_ids[:max_per_source]:
-                m = met_get_object(oid)
-                if m:
-                    results_unified.append(normalize_met(m))
+            rijks_recs = rijks_search(q, apikey=rijks_key, max_results=max_per_source)
+            for r in rijks_recs:
+                unified.append(normalize_rijks(r))
         except Exception:
-            pass
+            st.warning("Rijksmuseum search failed (check your key).")
 
-        # AIC
+    st.session_state["unified_raw"] = unified
+
+    # Deduplicate by (title+artist) or source+id
+    unique = []
+    seen = set()
+    for r in unified:
+        key = f"{r.get('source')}::{r.get('id')}" if r.get('source') and r.get('id') else (str(r.get('title','')).strip().lower() + '::' + str(r.get('artist','')).strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(r)
+
+    st.session_state["unified_unique"] = unique
+    st.success(f"Collected {len(unified)} raw records; {len(unique)} unique after dedupe.")
+
+    # Apply hybrid filter
+    filtered = [r for r in unique if passes_hybrid(r)]
+    st.session_state["filtered_results"] = filtered
+    st.success(f"Filtered results (hybrid Tag+Medium): {len(filtered)} artworks.")
+
+# Display results (filtered)
+filtered = st.session_state.get("filtered_results", [])
+if filtered:
+    st.markdown(f"### Results — {len(filtered)} filtered artworks (click 'Select' to pick for story generation)")
+    cols = st.columns(3)
+    for i, rec in enumerate(filtered[:60]):
+        with cols[i % 3]:
+            title = rec.get("title") or "Untitled"
+            img = rec.get("image")
+            if img:
+                try:
+                    st.image(img, use_column_width=True)
+                except Exception:
+                    st.write("[image load failed]")
+            st.markdown(f"**{title}**")
+            artist = rec.get("artist") or ""
+            date = rec.get("date") or ""
+            medium = rec.get("medium") or ""
+            source = rec.get("source") or ""
+            st.write(f"{artist} • {date}")
+            st.write(f"*{medium}* — {source}")
+            if st.button(f"Select {source}:{rec.get('id')}", key=f"select_{i}"):
+                pool = st.session_state.get("selection_pool", [])
+                pool.append(rec)
+                st.session_state["selection_pool"] = pool
+                st.success("Added to selection pool")
+
+else:
+    st.info("No filtered results available. Use the search box and click 'Search all sources' to fetch artworks.")
+
+# Selection pool preview and action area
+st.markdown("---")
+pool = st.session_state.get("selection_pool", [])
+st.subheader("Selection Pool")
+if not pool:
+    st.write("Selection pool is empty. Click 'Select' on any result above to add items here.")
+else:
+    for idx, item in enumerate(pool):
+        st.write(f"{idx+1}. **{item.get('title','Untitled')}** — {item.get('source')}")
+    sel_idx = st.number_input("Pick index of artwork to generate story", min_value=1, max_value=len(pool), value=1)
+    selected = pool[sel_idx - 1]
+    st.markdown("---")
+    st.subheader("Selected Artwork")
+    st.write(f"**{selected.get('title','Untitled')}** — {selected.get('source')}")
+    if selected.get("image"):
         try:
-            aic_recs = aic_search(q, max_results=max_per_source)
-            for r in aic_recs:
-                results_unified.append(normalize_aic(r))
-        except Exception:
+            st.image(selected.get("image"), width=360)
+        except:
             pass
+    st.write(f"{selected.get('artist') or ''} • {selected.get('date') or ''} • {selected.get('medium') or ''}")
+    st.write(f"[Open object]({selected.get('objectURL')})")
 
-        # Cleveland
-        try:
-            clev_recs = cleveland_search(q, max_results=max_per_source)
-            for r in clev_recs:
-                results_unified.append(normalize_cleveland(r))
-        except Exception:
-            pass
+    # Character detection default
+    t_low = (selected.get("title") or "").lower()
+    detected = [k for k in CHAR_KEYWORDS if k in t_low]
+    default_character = detected[0].capitalize() if detected else ""
+    character = st.text_input("Character for narrative (auto-detected from title, edit if needed):", value=default_character)
 
-        # British Museum
-        try:
-            bm_recs = british_search(q, max_results=max_per_source)
-            for r in bm_recs:
-                results_unified.append(normalize_british(r))
-        except Exception:
-            pass
+    if st.button("Generate Myth Narrative & Artwork Commentary (AI if available)"):
+        # Prepare prompt
+        prompt = f"""You are an art historian and museum curator. Produce two labeled sections:
 
-        # Rijksmuseum (optional)
-        rijks_key = st.secrets.get("RIJKSMUSEUM_KEY") if "RIJKSMUSEUM_KEY" in st.secrets else st.session_state.get("RIJKSMUSEUM_KEY")
-        if rijks_key:
-            try:
-                rijks_recs = rijks_search(q, apikey=rijks_key, max_results=max_per_source)
-                for r in rijks_recs:
-                    results_unified.append(normalize_rijks(r))
-            except Exception:
-                pass
-        else:
-            st.info("Rijksmuseum key not provided — skipping Rijksmuseum. (Put key in sidebar or st.secrets)")
+1) Myth Narrative — 3-6 sentences in a museum audio-guide tone about {character or 'the figure'}. Evocative but concise.
 
-        st.session_state["raw_unified"] = results_unified
-        # de-duplicate by (source, objectID) or by title+artist
-        unique = []
-        seen = set()
-        for r in results_unified:
-            key = f"{r.get('source')}::{r.get('objectID')}" or (r.get('title','') + '::' + str(r.get('artist','')))
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(r)
-        st.session_state["unified_unique"] = unique
-        st.success(f"Collected {len(results_unified)} raw records; {len(unique)} unique after basic dedupe.")
-
-        # apply hybrid filter
-        filtered = [r for r in unique if passes_hybrid(r)]
-        st.session_state["filtered_results"] = filtered
-        st.success(f"Filtered results (hybrid): {len(filtered)} artworks.")
-
-    # show filtered
-    filtered = st.session_state.get("filtered_results", [])
-    if not filtered:
-        st.info("No filtered results yet. Click 'Search all sources'.")
-    else:
-        st.write(f"Showing {len(filtered)} filtered artworks. Click Select to add to your session pool.")
-        cols = st.columns(3)
-        for i, rec in enumerate(filtered[:60]):
-            with cols[i%3]:
-                img = rec.get("primaryImageSmall") or rec.get("primaryImage")
-                if img:
-                    try:
-                        st.image(img, use_column_width=True)
-                    except:
-                        st.write("[image load failed]")
-                st.markdown(f"**{rec.get('title','Untitled')}**")
-                st.write(f"{rec.get('artist') or ''} • {rec.get('date') or ''}")
-                st.write(f"*{rec.get('medium') or ''}* • {rec.get('source')}")
-                if st.button(f"Select {rec.get('source')}:{rec.get('objectID')}", key=f"sel_{i}"):
-                    pool = st.session_state.get("selection_pool", [])
-                    pool.append(rec)
-                    st.session_state["selection_pool"] = pool
-                    st.success("Added to selection pool")
-
-    # session pool summary
-    pool = st.session_state.get("selection_pool", [])
-    if pool:
-        st.markdown("---")
-        st.subheader("Selection Pool")
-        for idx, p in enumerate(pool):
-            st.write(f"{idx+1}. {p.get('title')} — {p.get('source')}")
-
-# -------------------------
-# Stories: generate 3-part museum text (AI optional)
-# -------------------------
-elif page == "Stories":
-    st.header("Stories — AI-assisted museum texts (Character Overview / Myth Narrative / Artwork Commentary)")
-    st.write("Choose one artwork from your selection pool or use tag-precise searches in Explorer first.")
-
-    pool = st.session_state.get("selection_pool", [])
-    if not pool:
-        st.info("Selection pool is empty. Go to Explorer and add items.")
-    else:
-        idx = st.selectbox("Pick an artwork from selection pool", list(range(len(pool))), format_func=lambda i: f"{pool[i].get('title')} — {pool[i].get('source')}")
-        selected = pool[idx]
-        st.subheader(selected.get("title"))
-        if selected.get("primaryImage"):
-            try:
-                st.image(selected.get("primaryImage"), width=360)
-            except:
-                pass
-        st.write(f"{selected.get('artist')} • {selected.get('date')} • {selected.get('medium')} • {selected.get('source')}")
-        st.markdown("---")
-
-        # auto-detect character by title keywords
-        title_text = (selected.get("title") or "").lower()
-        detected = [k for k in CHAR_KEYWORDS if k in title_text]
-        default_character = detected[0].capitalize() if detected else "Athena"
-        character = st.text_input("Character for narrative (detected by title or type manually)", value=default_character)
-
-        if st.button("Generate 3-part museum text (AI)"):
-            # prepare prompt
-            seed = f"Short label seed for {character}."  # simple fallback
-            prompt = f"""
-You are an art historian and museum curator. Produce three labeled sections separated by '---':
-
-1) Character Overview — 1-2 sentences introducing {character} (concise).
-
-2) Myth Narrative — 3-6 sentences, evocative museum audio-guide tone retelling a key myth of {character}.
-
-3) Artwork Commentary — 3-6 sentences analyzing the selected artwork:
+2) Artwork Commentary — 3-6 sentences analyzing this artwork and linking it to the myth. Use the metadata below.
 Title: {selected.get('title')}
 Artist: {selected.get('artist')}
 Date: {selected.get('date')}
 Medium: {selected.get('medium')}
-Discuss composition, lighting, symbolism, and link to the myth. Keep language accessible to students and visitors.
+Museum source: {selected.get('source')}
 
-Return the three sections separated by '---'.
+Keep language clear for museum visitors and students.
+Return the two sections separated by '---'.
 """
-            if not openai_available():
-                st.warning("OpenAI key missing. Put it into st.secrets['OPENAI_API_KEY'] or paste in sidebar to enable AI.")
-                # local fallback
-                st.markdown("### Character Overview")
-                st.write(f"{character}: brief overview (fallback — AI not available).")
-                st.markdown("### Myth Narrative")
-                st.write(f"Short myth summary about {character} (fallback).")
-                st.markdown("### Artwork Commentary")
-                st.write("Short commentary linking image and myth (fallback).")
+
+        if not openai_client_available():
+            st.warning("OpenAI key not found. Put it in st.secrets['OPENAI_API_KEY'] or paste it in the sidebar to enable AI generation.")
+            # local fallback simple templates
+            st.markdown("### Myth Narrative (fallback)")
+            if character:
+                st.write(f"{character} — a central figure in classical myth. (Fallback summary: add OpenAI key for richer text.)")
             else:
-                try:
-                    out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=700)
-                except Exception as e:
-                    out = f"[AI generation failed: {e}]"
-                if isinstance(out, str) and '---' in out:
+                st.write("Short myth summary (fallback). Add OpenAI key for richer text.")
+            st.markdown("### Artwork Commentary (fallback)")
+            st.write("This artwork depicts a scene related to classical myth. Add OpenAI key for a richer, detailed commentary.")
+        else:
+            try:
+                out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=600)
+            except Exception as e:
+                st.error(f"AI generation failed: {e}")
+                out = None
+            if out:
+                if '---' in out:
                     parts = [p.strip() for p in out.split('---') if p.strip()]
-                    for p in parts:
-                        if p.lower().startswith("1") or "overview" in p.lower():
-                            st.markdown("### Character Overview")
-                            st.write(p)
-                        elif p.lower().startswith("2") or "narrative" in p.lower():
-                            st.markdown("### Myth Narrative")
-                            st.write(p)
-                        elif p.lower().startswith("3") or "commentary" in p.lower():
-                            st.markdown("### Artwork Commentary")
-                            st.write(p)
-                        else:
-                            st.write(p)
+                    if len(parts) >= 1:
+                        st.markdown("### Myth Narrative")
+                        st.write(parts[0])
+                    if len(parts) >= 2:
+                        st.markdown("### Artwork Commentary")
+                        st.write(parts[1])
                 else:
+                    st.markdown("### Generated Text")
                     st.write(out)
 
-# -------------------------
-# Analytics: simple visual summary of selection pool
-# -------------------------
-elif page == "Analytics":
-    st.header("Visual Analytics — selection pool summary")
-    pool = st.session_state.get("selection_pool", [])
-    if not pool:
-        st.info("No artworks selected yet.")
+    # allow removing from pool
+    if st.button("Remove selected from pool"):
+        pool.pop(sel_idx - 1)
+        st.session_state["selection_pool"] = pool
+        st.success("Removed from selection pool.")
+
+# ---- Small analytics (optional) ----
+st.markdown("---")
+st.subheader("Quick Analytics (selection pool)")
+if pool:
+    cultures = [p.get("culture") or p.get("source") for p in pool]
+    mediums = [p.get("medium") or "Unknown" for p in pool]
+    st.write(f"Artworks in pool: {len(pool)}")
+    if px:
+        try:
+            fig = px.bar(x=[c for _, c in Counter(mediums).most_common(10)], y=[k for k, _ in Counter(mediums).most_common(10)], orientation='h', labels={"x":"Count","y":"Medium"})
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            pass
     else:
-        st.write(f"Analyzing {len(pool)} artworks.")
-        years = []
-        cultures = []
-        mediums = []
-        colors = []
-        for rec in pool:
-            try:
-                raw = rec.get("raw") or {}
-                year = raw.get("objectBeginDate") or raw.get("creation_date") or raw.get("dated")
-                if isinstance(year, int):
-                    years.append(year)
-                elif isinstance(year, str) and year.strip().isdigit():
-                    years.append(int(year.strip()))
-            except:
-                pass
-            if rec.get("culture"):
-                cultures.append(rec.get("culture"))
-            if rec.get("medium"):
-                mediums.append(rec.get("medium"))
-            img_url = rec.get("primaryImageSmall") or rec.get("primaryImage")
-            if img_url:
-                b = fetch_bytes(img_url)
-                if b:
-                    colors.append(dominant_color_hex_from_image_bytes(b))
-        if years:
-            fig = px.histogram(x=years, nbins=20, title="Year distribution")
-            st.plotly_chart(fig, use_container_width=True)
-        if cultures:
-            top = Counter(cultures).most_common(8)
-            fig = px.pie(values=[c for _,c in top], names=[k for k,_ in top], title="Cultures (top)")
-            st.plotly_chart(fig, use_container_width=True)
-        if mediums:
-            topm = Counter(mediums).most_common(12)
-            fig = px.bar(x=[c for _,c in topm], y=[k for k,_ in topm], orientation='h', labels={"x":"Count","y":"Medium"})
-            st.plotly_chart(fig, use_container_width=True)
-        if colors:
-            st.markdown("### Dominant color swatches (sample)")
-            cols = st.columns(min(8, len(colors)))
-            for i, c in enumerate(colors[:8]):
-                with cols[i]:
-                    st.markdown(f"<div style='height:80px;background:{c};border-radius:6px;'></div>", unsafe_allow_html=True)
-                    st.write(c)
+        st.write("Install plotly for richer analytics.")
+else:
+    st.write("No data in pool yet.")
 
-# -------------------------
-# Lineages: simple museum-style bullets
-# -------------------------
-elif page == "Lineages":
-    st.header("Mythic Lineages — concise museum bullets")
-    RELS = [
-        ("Chaos","Gaia","parent"),
-        ("Gaia","Uranus","parent"),
-        ("Uranus","Cronus","parent"),
-        ("Cronus","Zeus","parent"),
-        ("Zeus","Athena","parent"),
-        ("Zeus","Apollo","parent"),
-        ("Zeus","Artemis","parent"),
-    ]
-    for a,b,r in RELS:
-        if r == "parent":
-            st.markdown(f"🔹 **{a} → {b}** — {a} is a progenitor whose attributes inform the domains embodied by {b}.")
-        else:
-            st.markdown(f"🔹 **{a} → {b}** — {r}")
+# ---- Footer / About / Keys reminders ----
+st.markdown("---")
+st.header("About & Keys")
+st.write(
+    "Data sources: MET (no key), Art Institute of Chicago (no key), Cleveland Museum Open Access (no key), "
+    "British Museum public API (no key), Rijksmuseum (free key needed)."
+)
+st.write(
+    "To enable AI text generation, add your OpenAI API key to Streamlit secrets as `OPENAI_API_KEY` or paste in the sidebar."
+)
+st.write(
+    "To enable Rijksmuseum searches, place your free Rijksmuseum key in Streamlit secrets as `RIJKSMUSEUM_KEY` or paste it in the sidebar."
+)
 
-    if st.button("Generate AI panel intro"):
-        if not openai_available():
-            st.warning("OpenAI key missing — showing local fallback.")
-            st.write("This panel shows a compact genealogy from primordial beings to early Olympians. Parent-child lines indicate transmission of roles and attributes.")
-        else:
-            try:
-                prompt = "Write a concise museum-panel introduction (3-5 sentences) about Greek myth genealogy connecting primordial beings to Olympians."
-                out = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=200)
-                st.write(out)
-            except Exception as e:
-                st.error(f"AI failed: {e}")
-
-# -------------------------
-# About
-# -------------------------
-elif page == "About":
-    st.header("About & Keys")
-    st.markdown("""
-**Data sources included:**  
-- MET Museum API (no key)  
-- Art Institute of Chicago API (no key)  
-- Cleveland Museum Open Access API (no key)  
-- British Museum public collection API (no key)  
-- Rijksmuseum API (**requires free key**)
-
-**Keys:**  
-- **Rijksmuseum**: obtain a free key at https://www.rijksmuseum.nl/en/api (put key in Streamlit secrets as `RIJKSMUSEUM_KEY` or paste into sidebar)  
-- **OpenAI** (optional, for AI text generation): place your `OPENAI_API_KEY` in Streamlit secrets as `OPENAI_API_KEY` or paste into sidebar to enable AI features.
-
-If you want, I can also:
-- Convert AI outputs to bilingual (EN/中文) automatically.
-- Change gallery layout to masonry/pinterest style.
-- Produce a printable PDF presentation summarizing the project.
-""")
-
-# -------------------------
 # End of file
-# -------------------------
