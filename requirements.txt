@@ -1,5 +1,6 @@
-streamlit
+streamlit==1.38.0
 requests
-Pillow
-plotly
-openai
+pillow
+pandas
+matplotlib
+beautifulsoup4
