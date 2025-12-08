@@ -33,8 +33,8 @@ from collections import Counter
 # -------------------------
 # Page config
 # -------------------------
-st.set_page_config(page_title="Mythic Art Explorer — Final (C)", layout="wide")
-st.title("🧿 Mythic Art Explorer — Final (C)")
+st.set_page_config(page_title="Mythic Art Explorer — Final", layout="wide")
+st.title("🧿 Mythic Art Explorer — Final")
 
 # -------------------------
 # MET API endpoints + helpers
