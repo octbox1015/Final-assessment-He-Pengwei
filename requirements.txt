@@ -1,7 +1,5 @@
-openai>=1.0.0
-pyvis
-networkx
 streamlit
 requests
+Pillow
 plotly
-pillow
+openai
