@@ -300,109 +300,109 @@ elif page == "Art Data":
                 st.markdown("### AI Analysis")
                 st.write(text)
 
-# ---------- Mythic Lineages ----------
-elif page == "Mythic Lineages":
-    st.header("Mythic Lineages — AI-enhanced explanations")
-    st.write("AI will generate museum-style explanations for each relation and a short overall panel text.")
+# ---------- Myth Stories (High-Accuracy Tag Filter) ----------
+elif page == "Myth Stories":
+    st.header("Myth Stories — Tag-Filtered Mythic Art Interpretation (AI)")
 
-    RELS = [
-        ("Chaos","Gaia","parent"),
-        ("Gaia","Uranus","parent"),
-        ("Uranus","Cronus","parent"),
-        ("Cronus","Zeus","parent"),
-        ("Cronus","Hera","parent"),
-        ("Cronus","Poseidon","parent"),
-        ("Cronus","Hades","parent"),
-        ("Zeus","Athena","parent"),
-        ("Zeus","Apollo","parent"),
-        ("Zeus","Artemis","parent"),
-        ("Zeus","Ares","parent"),
-        ("Zeus","Hermes","parent"),
-        ("Zeus","Dionysus","parent"),
-        ("Zeus","Perseus","parent"),
-        ("Zeus","Heracles","parent"),
-        ("Perseus","Theseus","influence"),
-        ("Theseus","Achilles","influence"),
-        ("Medusa","Perseus","conflict"),
-        ("Minotaur","Theseus","conflict"),
-        ("Cyclops","Poseidon","associate"),
-    ]
+    MYTH_TAGS = {
+        "Zeus": ["Zeus", "Jupiter", "Greek Mythology"],
+        "Hera": ["Hera", "Juno", "Greek Mythology"],
+        "Athena": ["Athena", "Pallas Athena", "Minerva", "Greek Mythology"],
+        "Apollo": ["Apollo"],
+        "Artemis": ["Artemis", "Diana"],
+        "Aphrodite": ["Aphrodite", "Venus"],
+        "Hermes": ["Hermes", "Mercury"],
+        "Ares": ["Ares", "Mars"],
+        "Poseidon": ["Poseidon", "Neptune"],
+        "Hades": ["Hades", "Pluto"],
+        "Dionysus": ["Dionysus", "Bacchus"],
+        "Heracles": ["Heracles", "Hercules"],
+        "Medusa": ["Medusa", "Gorgon"],
+        "Perseus": ["Perseus"],
+        "Theseus": ["Theseus"],
+        "Orpheus": ["Orpheus"],
+        "Narcissus": ["Narcissus"]
+    }
 
-    # Local fallback explanation (if no API)
-    def local_relation_explanation(a,b,rel):
-        if rel=="parent":
-            return f"🔹 {a} → {b}\n\n{a} is a progenitor whose attributes shape {b}."
-        if rel=="conflict":
-            return f"🔹 {a} → {b}\n\nThe relation is adversarial, often dramatised in mythic tales."
-        if rel=="influence":
-            return f"🔹 {a} → {b}\n\n{a} influences the legend and iconography of {b}."
-        if rel=="associate":
-            return f"🔹 {a} → {b}\n\nThey are thematically associated in mythic contexts."
-        return f"🔹 {a} → {b}\n\nRelation: {rel}."
+    character = st.selectbox("Choose character", MYTH_LIST)
+    tags = MYTH_TAGS.get(character, [])
+    st.write("Matched tags:", ", ".join(tags))
 
-    if st.button("Generate AI explanations for all relations"):
-        explanations = []
-        if not has_openai_key():
-            st.warning("No OpenAI key. Using local templates.")
-            explanations = [local_relation_explanation(a,b,rel) for a,b,rel in RELS]
-        else:
-            # build input text
-            items_text = "\n".join([f"{i+1}. {a} -> {b} (relation: {rel})" for i,(a,b,rel) in enumerate(RELS)])
-            prompt = f"""You are an art historian writing museum-label style explanations. 
-For each relation in the list, produce one short paragraph (2-4 sentences) beginning with the bullet like:
-🔹 A → B
-Then the explanation. Keep language formal but accessible to museum visitors.
+    if st.button("Find artworks for this mythic figure"):
+        st.info("Searching MET…")
 
-Relations:
-{items_text}
+        ids = []
+        for t in tags:
+            res = met_search_ids(t, max_results=150)
+            for oid in res:
+                if oid not in ids:
+                    ids.append(oid)
 
-Also produce a short overall panel text (3-4 sentences) that summarizes the genealogy theme.
-Return the overall panel text first, followed by the bullet paragraphs separated by blank lines.
+        results = []
+        p = st.progress(0)
+
+        for i, oid in enumerate(ids):
+            meta = met_get_object_cached(oid)
+            tag_terms = [t["term"] for t in meta.get("tags", [])]
+
+            if any(t in tag_terms for t in tags):
+                thumb = meta.get("primaryImageSmall") or meta.get("primaryImage")
+                if thumb:
+                    results.append({"id": oid, "meta": meta, "thumb": thumb})
+
+            p.progress(int((i + 1) / max(1, len(ids)) * 100))
+
+        st.session_state["story_results"] = results
+        st.success(f"Found {len(results)} valid mythic artworks.")
+
+    # Display results
+    results = st.session_state.get("story_results", [])
+
+    if results:
+        cols = st.columns(3)
+        for idx, rec in enumerate(results):
+            with cols[idx % 3]:
+                meta = rec["meta"]
+                st.image(rec["thumb"], use_column_width=True)
+                st.write(f"**{meta.get('title')}**")
+                if st.button(f"Select artwork {rec['id']}", key=f"s_{rec['id']}"):
+                    st.session_state["selected_story_art"] = rec
+                    st.success("Artwork selected")
+
+    meta_rec = st.session_state.get("selected_story_art")
+
+    if meta_rec:
+        m = meta_rec["meta"]
+        st.subheader("Selected Artwork")
+        st.image(m.get("primaryImage"), width=360)
+        st.write(f"**{m.get('title')}**")
+        st.write(m.get("artistDisplayName"))
+        st.write(m.get("objectDate"))
+
+        if st.button("Generate AI 3-Part Museum Text"):
+            if not has_openai_key():
+                st.warning("Enter API key first.")
+            else:
+                seed = MYTH_DB.get(character, "")
+
+                prompt = f"""
+Write 3 museum texts for exhibition:
+
+1) Character Overview — 2 sentences introducing {character}. Seed: {seed}
+
+2) Myth Narrative — 5 sentences retelling a key myth of {character} in an evocative style.
+
+3) Artwork Commentary — 5 sentences analyzing:
+Title: {m.get('title')}
+Artist: {m.get('artistDisplayName')}
+Date: {m.get('objectDate')}
+Explain composition, lighting, symbolism, and relation to the myth.
+
+Separate sections with '---'.
 """
-            try:
-                text = ai_generate_text(prompt, model="gpt-4.1-mini", max_tokens=800)
-                # naive split: first paragraph = overall panel; rest lines starting with 🔹
-                if "🔹" in text:
-                    # attempt to separate overall and bullets
-                    parts = text.split("🔹")
-                    overall = parts[0].strip()
-                    bullets = ["🔹"+p.strip() for p in parts[1:] if p.strip()]
-                    explanations = [overall] + bullets
-                else:
-                    explanations = [text]
-            except Exception as e:
-                st.error(f"AI generation failed: {e}")
-                explanations = [local_relation_explanation(a,b,rel) for a,b,rel in RELS]
 
-        # display
-        st.markdown("### Panel summary")
-        st.write(explanations[0] if explanations else "")
-        st.markdown("---")
-        st.markdown("### Relations (museum-style)")
-        for ex in (explanations[1:] if len(explanations)>1 else explanations):
-            st.markdown(ex)
-
-    st.markdown("---")
-    st.write("Interactive network (optional). Install pyvis & networkx to enable interactive view.")
-    try:
-        import networkx as nx
-        from pyvis.network import Network
-    except Exception:
-        st.info("pyvis/networkx not installed — interactive network unavailable.")
-    else:
-        G = nx.Graph()
-        for a,b,rel in RELS:
-            G.add_node(a); G.add_node(b); G.add_edge(a,b,relation=rel)
-        nt = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black", notebook=False)
-        for n in G.nodes():
-            nt.add_node(n, label=n, title=n)
-        for u,v,data in G.edges(data=True):
-            nt.add_edge(u, v, title=data.get("relation",""))
-        try:
-            html_str = nt.generate_html()
-            st.components.v1.html(html_str, height=650, scrolling=True)
-        except Exception as e:
-            st.error(f"Failed to render network: {e}")
+                text = ai_generate_text(prompt, max_tokens=600)
+                st.write(text)
 
 # ---------- Myth Stories ----------
 elif page == "Myth Stories":
